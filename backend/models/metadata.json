@@ -1,0 +1,36 @@
+{
+    "classes": [
+        "bicycle",
+        "house",
+        "flying saucer",
+        "umbrella",
+        "fish",
+        "guitar",
+        "helicopter",
+        "crocodile",
+        "kangaroo",
+        "lighthouse"
+    ],
+    "class_to_index": {
+        "bicycle": 0,
+        "house": 1,
+        "flying saucer": 2,
+        "umbrella": 3,
+        "fish": 4,
+        "guitar": 5,
+        "helicopter": 6,
+        "crocodile": 7,
+        "kangaroo": 8,
+        "lighthouse": 9
+    },
+    "image_size": 28,
+    "partial_levels": [
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1.0
+    ],
+    "originals_per_class": 3000,
+    "pixel_format": "white strokes on black background"
+}
