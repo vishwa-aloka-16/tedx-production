@@ -73,6 +73,7 @@ export default function useDrawingCanvas({
     useRef(false);
 
   const drawingVersionRef = useRef(0);
+  const hasDrawingRef = useRef(false);
 
   const [prediction, setPrediction] =
     useState(null);
@@ -106,6 +107,7 @@ export default function useDrawingCanvas({
     drawingRef.current = false;
     activePointerRef.current = null;
     drawingChangedRef.current = false;
+    hasDrawingRef.current = false;
 
     window.clearTimeout(
       predictionTimerRef.current,
@@ -119,10 +121,12 @@ export default function useDrawingCanvas({
     window.requestAnimationFrame(() => {
       resetCanvas(canvasRef.current);
     });
-  }, [roundNumber, phase]);
+  }, [gameId, playerId, roundNumber, phase]);
 
   useEffect(() => {
     return () => {
+      enabledRef.current = false;
+      drawingVersionRef.current += 1;
       window.clearTimeout(
         predictionTimerRef.current,
       );
@@ -134,6 +138,7 @@ export default function useDrawingCanvas({
       if (
         predictionRunningRef.current ||
         !canvasRef.current ||
+        !hasDrawingRef.current ||
         !enabledRef.current
       ) {
         return;
@@ -144,6 +149,8 @@ export default function useDrawingCanvas({
 
       const requestVersion =
         drawingVersionRef.current;
+      let retry = false;
+      let retryDelay = PREDICTION_DELAY_MS;
 
       try {
         const imageDataUrl =
@@ -164,12 +171,25 @@ export default function useDrawingCanvas({
         ) {
           setPrediction(result);
           setPredictionError("");
+          if (result.accepted || result.round_finished) {
+            enabledRef.current = false;
+          } else {
+            retry = true;
+            retryDelay = Math.max(
+              PREDICTION_DELAY_MS,
+              (Number(result.retry_after_seconds) || 0) * 1000,
+            );
+          }
         }
       } catch (error) {
         const roundFinished =
           error.message
             .toLowerCase()
             .includes("not accepting");
+
+        if (requestVersion === drawingVersionRef.current && roundFinished) {
+          enabledRef.current = false;
+        }
 
         if (
           requestVersion ===
@@ -179,22 +199,27 @@ export default function useDrawingCanvas({
           setPredictionError(
             error.message,
           );
+          retry = !error.message.toLowerCase().includes("draw something first");
+          retryDelay = 1500;
         }
       } finally {
         predictionRunningRef.current =
           false;
 
         if (
-          drawingChangedRef.current &&
-          enabledRef.current
+          enabledRef.current &&
+          hasDrawingRef.current &&
+          (drawingChangedRef.current ||
+            (retry && requestVersion === drawingVersionRef.current))
         ) {
+          window.clearTimeout(predictionTimerRef.current);
           predictionTimerRef.current =
             window.setTimeout(() => {
               predictionTimerRef.current =
                 null;
 
               predictDrawing();
-            }, PREDICTION_DELAY_MS);
+            }, requestVersion === drawingVersionRef.current ? retryDelay : PREDICTION_DELAY_MS);
         }
       }
     }, [gameId, playerId]);
@@ -204,8 +229,10 @@ export default function useDrawingCanvas({
       if (!enabledRef.current) return;
 
       drawingChangedRef.current = true;
+      hasDrawingRef.current = true;
 
       if (
+        predictionRunningRef.current ||
         predictionTimerRef.current !==
         null
       ) {
@@ -309,6 +336,7 @@ export default function useDrawingCanvas({
     drawingRef.current = false;
     activePointerRef.current = null;
     drawingChangedRef.current = false;
+    hasDrawingRef.current = false;
 
     window.clearTimeout(
       predictionTimerRef.current,
