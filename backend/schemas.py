@@ -8,6 +8,18 @@ class MatchmakingRequest(BaseModel):
     )
 
 
+class AdminSettingsRequest(BaseModel):
+    class_difficulties: dict[str, str] | None = None
+    model_key: str
+    round_seconds: int = Field(
+        ge=10,
+        le=600,
+    )
+    excluded_classes: list[str] = Field(
+        default_factory=list,
+    )
+
+
 class PlayerActionRequest(BaseModel):
     player_id: str
 

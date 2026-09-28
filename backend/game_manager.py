@@ -2,12 +2,15 @@ import asyncio
 import math
 import random
 import secrets
+import sqlite3
 import time
 from dataclasses import (
     dataclass,
     field,
 )
 from typing import Any
+from .config import LEADERBOARD_PATH
+from .difficulty import LEVELS, default_difficulties, round_difficulty
 
 from fastapi import (
     HTTPException,
@@ -16,7 +19,7 @@ from fastapi import (
 
 
 MAX_PLAYERS = 2
-MAX_ROUNDS = 5
+MAX_ROUNDS = 6
 ROUND_SECONDS = 90
 COUNTDOWN_SECONDS = 3
 ROUND_RESULT_SECONDS = 6
@@ -24,6 +27,8 @@ ROUND_RESULT_SECONDS = 6
 CONFIDENCE_THRESHOLD = 0.4
 REQUIRED_CONSECUTIVE_HITS = 3
 MINIMUM_JUDGE_SECONDS = 1.5
+FINAL_ROUND_DRAW_SECONDS = 3.0
+LATE_ROUND_FRACTION = 0.8
 
 
 @dataclass
@@ -51,6 +56,10 @@ class Player:
 @dataclass
 class Game:
     id: str
+    model_key: str = "pytorch_20"
+    classes: list[str] = field(default_factory=list)
+    class_difficulties: dict[str, str] = field(default_factory=dict)
+    round_seconds: int = ROUND_SECONDS
 
     phase: str = "WAITING"
 
@@ -63,6 +72,7 @@ class Game:
 
     prompt: str = ""
     previous_prompt: str = ""
+    used_prompts: set[str] = field(default_factory=set)
 
     countdown_ends_at: (
         float | None
@@ -87,16 +97,39 @@ class Game:
     )
 
     transition_token: int = 0
+    leaderboard_recorded: bool = False
+    round_winners: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    @property
+    def max_rounds(self) -> int:
+        return min(MAX_ROUNDS, len(set(self.classes)))
 
 
 class GameManager:
     def __init__(
         self,
         available_classes: list[str],
+        classes_by_model: dict[str, list[str]],
     ):
         self.classes = (
             available_classes.copy()
         )
+        self.classes_by_model = {
+            model_key: classes.copy()
+            for model_key, classes
+            in classes_by_model.items()
+        }
+        self.model_key = next(iter(self.classes_by_model))
+        self.round_seconds = ROUND_SECONDS
+        self.excluded_classes: set[str] = set()
+        self.difficulties_by_model = {
+            key: default_difficulties(classes)
+            for key, classes in self.classes_by_model.items()
+        }
+        self.dashboard_reset_at = 0.0
+        self.leaderboard_subscribers: set[asyncio.Queue] = set()
 
         self.games: dict[
             str,
@@ -121,6 +154,121 @@ class GameManager:
         self.matchmaking_lock = (
             asyncio.Lock()
         )
+        self.leaderboard_path = LEADERBOARD_PATH
+        self.initialize_leaderboard()
+
+    def initialize_leaderboard(self):
+        self.leaderboard_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.leaderboard_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS leaderboard (
+                    player_name TEXT PRIMARY KEY,
+                    score INTEGER NOT NULL DEFAULT 0,
+                    wins INTEGER NOT NULL DEFAULT 0,
+                    games INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+
+    def record_leaderboard(self, game: Game):
+        if game.leaderboard_recorded:
+            return
+
+        with sqlite3.connect(self.leaderboard_path) as connection:
+            for player in game.players.values():
+                connection.execute(
+                    """
+                    INSERT INTO leaderboard (player_name, score, wins, games)
+                    VALUES (?, ?, ?, 1)
+                    ON CONFLICT(player_name) DO UPDATE SET
+                        score = score + excluded.score,
+                        wins = wins + excluded.wins,
+                        games = games + 1
+                    """,
+                    (
+                        player.name,
+                        player.score,
+                        player.round_wins,
+                    ),
+                )
+
+        game.leaderboard_recorded = True
+
+    def leaderboard(self) -> dict[str, Any]:
+        with sqlite3.connect(self.leaderboard_path) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT player_name, score, wins, games
+                FROM leaderboard
+                ORDER BY score DESC, wins DESC, player_name ASC
+                LIMIT 20
+                """
+            ).fetchall()
+
+        players = [
+            {
+                "rank": rank,
+                "name": row["player_name"],
+                "score": row["score"],
+                "wins": row["wins"],
+                "games": row["games"],
+            }
+            for rank, row in enumerate(rows, start=1)
+        ]
+
+        games = [
+            {
+                "id": game.id,
+                "status": (
+                    "in_progress"
+                    if game.phase != "FINAL_RESULT"
+                    else "completed"
+                ),
+                "phase": game.phase,
+                "players": [
+                    player.name
+                    for player in sorted(
+                        game.players.values(),
+                        key=lambda player: player.seat,
+                    )
+                ],
+                "round_winners": game.round_winners,
+                "game_result": self.game_result(game),
+            }
+            for game in self.games.values()
+            if game.players
+            and (
+                game.phase != "FINAL_RESULT"
+                or game.created_at >= self.dashboard_reset_at
+            )
+        ]
+
+        return {
+            "players": players,
+            "games": games,
+        }
+
+    @staticmethod
+    def game_result(game: Game) -> dict | None:
+        if game.phase != "FINAL_RESULT" or not game.players:
+            return None
+        top_score = max(player.score for player in game.players.values())
+        winners = [player.name for player in game.players.values() if player.score == top_score]
+        return {
+            "event_id": f"{game.id}-final-{game.transition_token}",
+            "winners": winners,
+            "score": top_score,
+            "tied": len(winners) > 1,
+        }
+
+    def reset_dashboard(self) -> dict[str, Any]:
+        with sqlite3.connect(self.leaderboard_path) as connection:
+            connection.execute("DELETE FROM leaderboard")
+
+        self.dashboard_reset_at = time.time()
+        return self.leaderboard()
 
     @staticmethod
     def clean_name(name: str) -> str:
@@ -137,6 +285,72 @@ class GameManager:
             )
 
         return cleaned_name[:24]
+
+    def admin_state(self) -> dict[str, Any]:
+        classes = self.classes_by_model[self.model_key]
+        return {
+            "model_key": self.model_key,
+            "round_seconds": self.round_seconds,
+            "classes": [
+                {
+                    "name": class_name,
+                    "enabled": class_name not in self.excluded_classes,
+                    "difficulty": self.difficulties_by_model[self.model_key][class_name],
+                }
+                for class_name in classes
+            ],
+        }
+
+    def update_admin_settings(
+        self,
+        model_key: str,
+        round_seconds: int,
+        excluded_classes: list[str],
+        class_difficulties: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        classes = self.classes_by_model.get(model_key)
+
+        if classes is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Please choose a supported AI model.",
+            )
+
+        unknown_classes = set(excluded_classes) - set(classes)
+        if unknown_classes:
+            raise HTTPException(
+                status_code=400,
+                detail="One or more excluded classes are not in the selected model.",
+            )
+
+        if len(unknown_classes) == len(classes):
+            raise HTTPException(
+                status_code=400,
+                detail="At least one class must remain enabled.",
+            )
+
+        if len(set(excluded_classes)) >= len(classes):
+            raise HTTPException(
+                status_code=400,
+                detail="At least one class must remain enabled.",
+            )
+
+        difficulties = (self.difficulties_by_model[model_key].copy()
+                        if class_difficulties is None else class_difficulties.copy())
+        if set(difficulties) != set(classes) or any(
+            level not in LEVELS for level in difficulties.values()
+        ):
+            raise HTTPException(status_code=400, detail="Assign every class to easy, medium, or hard.")
+        for level in LEVELS:
+            if sum(name not in excluded_classes and difficulties[name] == level
+                   for name in classes) < 2:
+                raise HTTPException(status_code=400, detail=f"Enable at least two {level} classes for six unique rounds.")
+
+        self.difficulties_by_model[model_key] = difficulties
+        self.model_key = model_key
+        self.round_seconds = round_seconds
+        self.excluded_classes = set(excluded_classes)
+        return self.admin_state()
 
     @staticmethod
     def create_game_id() -> str:
@@ -213,15 +427,19 @@ class GameManager:
 
         return {
             "id": game.id,
+            "model_key": game.model_key,
             "phase": game.phase,
 
             "round_number": (
                 game.round_number
             ),
 
-            "max_rounds": MAX_ROUNDS,
+            "max_rounds": game.max_rounds,
+            "difficulty": round_difficulty(
+                game.round_number + 1 if game.phase == "COUNTDOWN" else game.round_number
+            ),
             "round_seconds": (
-                ROUND_SECONDS
+                game.round_seconds
             ),
 
             "prompt": game.prompt,
@@ -396,10 +614,19 @@ class GameManager:
     async def join_matchmaking(
         self,
         name: str,
+        model_key: str | None = None,
     ) -> tuple[Game, Player]:
         player_name = self.clean_name(
             name
         )
+
+        model_key = model_key or self.model_key
+
+        if model_key not in self.classes_by_model:
+            raise HTTPException(
+                status_code=400,
+                detail="Please choose a supported AI model.",
+            )
 
         async with self.matchmaking_lock:
             waiting_game = None
@@ -410,6 +637,8 @@ class GameManager:
                 if (
                     existing_game.phase
                     == "WAITING"
+                    and existing_game.model_key
+                    == model_key
                     and len(
                         existing_game.players
                     )
@@ -446,8 +675,22 @@ class GameManager:
                 )
 
             game = Game(
-                id=self.create_game_id()
+                id=self.create_game_id(),
+                model_key=model_key,
+                classes=[
+                    item
+                    for item in self.classes_by_model[model_key]
+                    if item not in self.excluded_classes
+                ],
+                round_seconds=self.round_seconds,
+                class_difficulties=self.difficulties_by_model[model_key].copy(),
             )
+
+            if not game.classes:
+                raise HTTPException(
+                    status_code=400,
+                    detail="At least one class must remain enabled.",
+                )
 
             player = Player(
                 id=self.create_player_id(),
@@ -582,14 +825,19 @@ class GameManager:
 
             prompt_options = [
                 prompt
-                for prompt in self.classes
-                if prompt != last_prompt
+                for prompt in dict.fromkeys(game.classes)
+                if prompt not in game.used_prompts
+                and (not game.class_difficulties or
+                     game.class_difficulties.get(prompt) == round_difficulty(game.round_number + 1))
             ]
 
             if not prompt_options:
-                prompt_options = (
-                    self.classes
-                )
+                game.phase = "FINAL_RESULT"
+                game.countdown_ends_at = None
+                game.transition_token += 1
+                self.record_leaderboard(game)
+                await self.broadcast(game)
+                return
 
             game.previous_prompt = (
                 last_prompt
@@ -598,6 +846,7 @@ class GameManager:
             game.prompt = random.choice(
                 prompt_options
             )
+            game.used_prompts.add(game.prompt)
 
             game.round_number += 1
             game.phase = "DRAWING"
@@ -610,7 +859,7 @@ class GameManager:
 
             game.round_deadline = (
                 game.round_started_at
-                + ROUND_SECONDS
+                + game.round_seconds
             )
 
             game.round_winner_id = None
@@ -643,9 +892,25 @@ class GameManager:
         game_id: str,
         round_token: int,
     ):
-        await asyncio.sleep(
-            ROUND_SECONDS
-        )
+        game = self.games.get(game_id)
+
+        if game is None:
+            return
+
+        await asyncio.sleep(game.round_seconds * LATE_ROUND_FRACTION)
+
+        game_lock = self.game_locks.get(game_id)
+        if game_lock is None:
+            return
+        async with game_lock:
+            if game.transition_token != round_token or game.phase != "DRAWING":
+                return
+            winner = self.highest_confidence_player(game)
+            if winner is not None:
+                await self.finish_round(game, winner=winner)
+                return
+
+        await asyncio.sleep(game.round_seconds * (1 - LATE_ROUND_FRACTION))
 
         game = self.games.get(game_id)
 
@@ -670,8 +935,43 @@ class GameManager:
 
             await self.finish_round(
                 game,
-                winner=None,
+                winner=self.highest_confidence_player(game),
             )
+
+    @staticmethod
+    def highest_confidence_player(game: Game) -> Player | None:
+        candidates = sorted(
+            (player for player in game.players.values()
+             if player.predictions_seen > 0 and player.last_guess == game.prompt
+             and player.confidence > 0),
+            key=lambda player: player.confidence,
+            reverse=True,
+        )
+        if not candidates:
+            return None
+        # Equal confidence is not a win; keep drawing until the tie breaks.
+        if len(candidates) > 1 and candidates[0].confidence == candidates[1].confidence:
+            return None
+        return candidates[0]
+
+    @staticmethod
+    def prediction_wait_response(game: Game) -> dict | None:
+        if game.phase != "DRAWING" or game.round_number != game.max_rounds:
+            return None
+        elapsed = (time.time() - game.round_started_at
+                   if game.round_started_at is not None else 0)
+        remaining = FINAL_ROUND_DRAW_SECONDS - elapsed
+        if remaining <= 0:
+            return None
+        return {
+            "prediction": "",
+            "confidence": 0.0,
+            "accepted": False,
+            "round_finished": False,
+            "consecutive_hits": 0,
+            "required_hits": REQUIRED_CONSECUTIVE_HITS,
+            "retry_after_seconds": remaining,
+        }
 
     async def record_prediction(
         self,
@@ -701,6 +1001,10 @@ class GameManager:
                         REQUIRED_CONSECUTIVE_HITS
                     ),
                 }
+
+            waiting = self.prediction_wait_response(game)
+            if waiting is not None:
+                return waiting
 
             player.predictions_seen += 1
 
@@ -747,6 +1051,11 @@ class GameManager:
                 >= REQUIRED_CONSECUTIVE_HITS
             )
 
+            winner = player if prediction_accepted else None
+            if elapsed_seconds >= game.round_seconds * LATE_ROUND_FRACTION:
+                winner = self.highest_confidence_player(game)
+                prediction_accepted = winner is not None and winner.id == player.id
+
             response = {
                 **prediction_result,
 
@@ -764,10 +1073,10 @@ class GameManager:
                 ),
             }
 
-            if prediction_accepted:
+            if winner is not None:
                 await self.finish_round(
                     game,
-                    winner=player,
+                    winner=winner,
                 )
             else:
                 await self.broadcast(game)
@@ -825,8 +1134,20 @@ class GameManager:
             game.round_winner_id = None
             game.round_points = 0
 
+        game.round_winners.append(
+            {
+                "event_id": secrets.token_urlsafe(12),
+                "round": game.round_number,
+                "winner": winner.name if winner else None,
+                "points": game.round_points,
+            }
+        )
+
         game.round_deadline = None
 
+        for queue in self.leaderboard_subscribers:
+            if not queue.full():
+                queue.put_nowait(True)
         await self.broadcast(game)
 
         asyncio.create_task(
@@ -868,11 +1189,15 @@ class GameManager:
 
             if (
                 game.round_number
-                >= MAX_ROUNDS
+                >= game.max_rounds
             ):
                 game.phase = "FINAL_RESULT"
+                self.record_leaderboard(game)
                 game.transition_token += 1
 
+                for queue in self.leaderboard_subscribers:
+                    if not queue.full():
+                        queue.put_nowait(True)
                 await self.broadcast(game)
 
                 return
@@ -915,6 +1240,8 @@ class GameManager:
 
             game.prompt = ""
             game.previous_prompt = ""
+            game.used_prompts.clear()
+            game.leaderboard_recorded = False
 
             game.countdown_ends_at = None
             game.round_started_at = None
@@ -922,6 +1249,7 @@ class GameManager:
 
             game.round_winner_id = None
             game.round_points = 0
+            game.round_winners = []
 
             for player in (
                 game.players.values()
@@ -1024,6 +1352,9 @@ class GameManager:
 
                 game.prompt = ""
                 game.previous_prompt = ""
+                game.used_prompts.clear()
+                game.round_winners = []
+                game.leaderboard_recorded = False
 
                 game.countdown_ends_at = None
                 game.round_started_at = None

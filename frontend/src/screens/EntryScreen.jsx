@@ -67,7 +67,7 @@ export default function EntryScreen({
           </h1>
 
           <p>
-            Five prompts. Ninety seconds each.
+            Six prompts. Ninety seconds each.
             Make the AI recognize your drawing
             before your opponent.
           </p>

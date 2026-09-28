@@ -3,4 +3,6 @@ uvicorn[standard]
 numpy
 pillow
 torch
+tensorflow
 pydantic
+python-dotenv

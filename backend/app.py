@@ -1,4 +1,8 @@
 import asyncio
+from contextlib import asynccontextmanager
+from .config import CORS_ORIGINS
+
+from .tensorflow_model_service import get_model as warm_tensorflow_model
 
 from fastapi import (
     FastAPI,
@@ -17,10 +21,15 @@ from .game_manager import GameManager
 from .model_service import (
     classes,
     metadata,
+)
+from .model_registry import (
+    MODEL_CLASSES,
+    get_available_models,
     predict_drawing,
 )
 
 from .schemas import (
+    AdminSettingsRequest,
     DrawingRequest,
     GamePredictionRequest,
     MatchmakingRequest,
@@ -28,26 +37,31 @@ from .schemas import (
 )
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Finish the 50-class model's cold start before accepting game requests.
+    await asyncio.to_thread(warm_tensorflow_model)
+    yield
+
+
 app = FastAPI(
     title="AI Pictionary Game API",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://172.20.10.2:5173",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 game_manager = GameManager(
-    available_classes=classes
+    available_classes=classes,
+    classes_by_model=MODEL_CLASSES,
 )
 
 
@@ -82,10 +96,45 @@ def health():
 
         "game": {
             "maximum_players": 2,
-            "maximum_rounds": 5,
+            "maximum_rounds": 6,
             "round_seconds": 90,
         },
     }
+
+
+@app.get("/admin")
+def admin_settings():
+    return {
+        "models": get_available_models(game_manager.difficulties_by_model),
+        "settings": game_manager.admin_state(),
+    }
+
+
+@app.put("/admin")
+def update_admin_settings(
+    request: AdminSettingsRequest,
+):
+    return {
+        "models": get_available_models(game_manager.difficulties_by_model),
+        "settings": game_manager.update_admin_settings(
+            model_key=request.model_key,
+            round_seconds=request.round_seconds,
+            excluded_classes=request.excluded_classes,
+            class_difficulties=request.class_difficulties,
+        ),
+    }
+
+
+@app.post("/admin/reset-dashboard")
+def reset_dashboard():
+    return game_manager.reset_dashboard()
+
+
+@app.get("/leaderbord")
+@app.get("/leaderborad")
+@app.get("/leaderboard")
+def leaderboard():
+    return game_manager.leaderboard()
 
 
 # Standalone model test endpoint.
@@ -96,6 +145,7 @@ async def predict(
     return await asyncio.to_thread(
         predict_drawing,
         request.image_data_url,
+        "pytorch_20",
     )
 
 
@@ -108,7 +158,7 @@ async def join_matchmaking(
 ):
     game, player = (
         await game_manager.join_matchmaking(
-            request.name
+            request.name,
         )
     )
 
@@ -174,10 +224,17 @@ async def game_prediction(
             ),
         )
 
+    # Skip inference on early snapshots; the client's next request contains
+    # the drawing after the player has had time to develop it.
+    waiting = game_manager.prediction_wait_response(game)
+    if waiting is not None:
+        return waiting
+
     prediction_result = (
         await asyncio.to_thread(
             predict_drawing,
             request.image_data_url,
+            game.model_key,
         )
     )
 
@@ -212,6 +269,26 @@ async def leave_game(
     return {
         "status": "left",
     }
+
+
+@app.websocket("/ws/leaderboard")
+async def leaderboard_websocket(websocket: WebSocket):
+    await websocket.accept()
+    updates = asyncio.Queue(maxsize=1)
+    game_manager.leaderboard_subscribers.add(updates)
+    try:
+        while True:
+            await websocket.send_json(game_manager.leaderboard())
+            try:
+                # Winner decisions wake this immediately. Periodic snapshots
+                # also refresh joins, resets, and completed-game totals.
+                await asyncio.wait_for(updates.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+    except (WebSocketDisconnect, RuntimeError, OSError):
+        pass
+    finally:
+        game_manager.leaderboard_subscribers.discard(updates)
 
 
 @app.websocket("/ws/games/{game_id}")

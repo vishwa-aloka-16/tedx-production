@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BrandLogos from "./components/BrandLogos";
 
 import useGameConnection from "./hooks/useGameConnection";
 
@@ -19,8 +20,22 @@ import WelcomeScreen from "./screens/WelcomeScreen";
 import NameScreen from "./screens/NameScreen";
 import WaitingScreen from "./screens/WaitingScreen";
 import GameScreen from "./screens/GameScreen";
+import AdminScreen from "./screens/AdminScreen";
+import LeaderboardScreen from "./screens/LeaderboardScreen";
 
 export default function App() {
+  if (window.location.pathname === "/admin") {
+    return <AdminScreen />;
+  }
+
+  if (["/leaderbord", "/leaderborad", "/leaderboard"].includes(window.location.pathname)) {
+    return <LeaderboardScreen />;
+  }
+
+  return <GameApp />;
+}
+
+function GameApp() {
   const initialSession = getStoredSession();
 
   const [session, setSession] =
@@ -33,7 +48,6 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] =
     useState("");
-
   const {
     game,
     setGame,
@@ -166,9 +180,7 @@ export default function App() {
     return (
       <main className="error-page">
         <section className="connection-error-card">
-          <div className="brand-mark">
-            AI
-          </div>
+          <BrandLogos compact />
 
           <h1>Unable to reconnect</h1>
 
@@ -188,9 +200,7 @@ export default function App() {
   if (session && !game) {
     return (
       <main className="loading-page">
-        <div className="loading-logo">
-          AI
-        </div>
+        <BrandLogos />
 
         <p>Joining the game...</p>
       </main>

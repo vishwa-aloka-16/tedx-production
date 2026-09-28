@@ -5,6 +5,7 @@ import {
 } from "react";
 
 import useDrawingCanvas from "../hooks/useDrawingCanvas";
+import BrandLogos from "../components/BrandLogos";
 
 import {
   formatPrompt,
@@ -76,6 +77,23 @@ function CountdownOverlay({
 
         <h2>Get ready to draw</h2>
       </section>
+    </div>
+  );
+}
+
+function RoundPromptOverlay({ prompt }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setVisible(false), 1000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <div className="round-prompt-overlay" role="status">
+      <strong>{formatPrompt(prompt)}</strong>
     </div>
   );
 }
@@ -187,7 +205,7 @@ function FinalResultOverlay({
         </h1>
 
         <p>
-          Five rounds complete. Here is the
+          {game.max_rounds} rounds complete. Here is the
           final scoreboard.
         </p>
 
@@ -338,20 +356,14 @@ export default function GameScreen({
   return (
     <main className="game-page">
       <header className="game-header">
-        <div className="mini-brand">
-          <div className="brand-mark">
-            AI
-          </div>
-
-          <strong>Pictionary</strong>
-        </div>
+        <BrandLogos compact />
 
         <div className="round-indicator">
           ROUND{" "}
           <strong>
             {game.round_number || 1}
           </strong>{" "}
-          / {game.max_rounds || 5}
+          / {game.max_rounds || 6} · {game.difficulty}
         </div>
 
         <div
@@ -398,8 +410,8 @@ export default function GameScreen({
           <span>TIME LEFT</span>
 
           <strong>
-            0:
-            {String(secondsLeft).padStart(
+            {Math.floor(secondsLeft / 60)}:
+            {String(secondsLeft % 60).padStart(
               2,
               "0",
             )}
@@ -441,11 +453,12 @@ export default function GameScreen({
               ref={canvasRef}
               width="700"
               height="560"
+              aria-label="Draw the current prompt here using your finger, stylus, or mouse"
               onPointerDown={startDrawing}
               onPointerMove={continueDrawing}
               onPointerUp={stopDrawing}
               onPointerCancel={stopDrawing}
-              onPointerLeave={stopDrawing}
+              onLostPointerCapture={stopDrawing}
             />
 
             {!currentGuess &&
@@ -560,6 +573,13 @@ export default function GameScreen({
         game={game}
         playerId={playerId}
       />
+
+      {game.phase === "DRAWING" && game.prompt && (
+        <RoundPromptOverlay
+          key={`${game.id}-${game.round_number}-${game.round_started_at}`}
+          prompt={game.prompt}
+        />
+      )}
 
       <FinalResultOverlay
         game={game}

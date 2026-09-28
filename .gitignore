@@ -5,6 +5,8 @@ node_modules/
 dist/
 .env
 .env.local
-backend/models/*.pt
-backend/models/*.onnx
+.env.*
+!.env.example
+*.sqlite3
+*.sqlite3-*
 *.npz

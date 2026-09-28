@@ -1,0 +1,289 @@
+.welcome-page {
+  background:
+    radial-gradient(ellipse at 5% 65%, #eee8f780, transparent 50%),
+    radial-gradient(ellipse at 95% 15%, #e9e1f580, transparent 40%),
+    #faf9fc;
+  padding-bottom: 24px;
+}
+
+.welcome-page .navigation {
+  max-width: 1240px;
+}
+
+.welcome-page .welcome-layout {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
+  gap: clamp(40px, 6vw, 96px);
+  margin: clamp(40px, 6vh, 76px) auto;
+}
+
+.welcome-kicker {
+  align-items: center;
+  display: inline-flex;
+  gap: 9px;
+  color: #76539a;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.17em;
+}
+
+.welcome-kicker > span {
+  background: #9162b5;
+  border-radius: 50%;
+  height: 6px;
+  width: 6px;
+  box-shadow: 0 0 0 4px #9162b512;
+}
+
+.welcome-page .welcome-content h1 {
+  font-size: clamp(40px, 4.3vw, 64px);
+  font-weight: 750;
+  letter-spacing: -0.055em;
+  line-height: 1.09;
+  margin: 25px 0 24px;
+}
+
+.welcome-page .welcome-content h1 span {
+  color: #8252a9;
+}
+
+.welcome-page .welcome-content > p {
+  color: #706b79;
+  font-size: 17px;
+  line-height: 1.8;
+  max-width: 460px;
+}
+
+.welcome-actions {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  margin-top: 30px;
+}
+
+.welcome-page .welcome-button {
+  background: #7847a3;
+  border: 1px solid #6c3e96;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px #70439725;
+  font-size: 15px;
+  justify-content: space-between;
+  margin: 0;
+  max-width: 224px;
+  min-height: 56px;
+  padding: 0 24px;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.welcome-page .welcome-button:hover {
+  background: #66398f;
+}
+
+.welcome-button svg {
+  width: 21px;
+  height: 21px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.welcome-note {
+  color: #787180;
+  font-size: 12px;
+}
+
+.welcome-stats {
+  display: flex;
+  gap: clamp(20px, 3vw, 40px);
+  margin: 42px 0 0;
+  padding-top: 25px;
+  border-top: 1px solid #e4ddeb;
+  max-width: 430px;
+}
+
+.welcome-stats > div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 5px;
+}
+
+.welcome-stats > div + div {
+  border-left: 1px solid #e4ddeb;
+  padding-left: clamp(20px, 3vw, 40px);
+}
+
+.welcome-stats dt {
+  color: #787180;
+  font-size: 11px;
+}
+
+.welcome-stats dd {
+  color: #352640;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+
+.welcome-page .how-to-play-card {
+  background: #fff;
+  border: 1px solid #e9e2ee;
+  border-radius: 24px;
+  box-shadow: 0 16px 48px #35264008;
+  padding: clamp(24px, 3vw, 36px);
+  position: relative;
+}
+
+.play-card-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.play-card-heading .eyebrow {
+  color: #8252a9;
+  font-size: 10px;
+}
+
+.sketch-icon {
+  background: #f4eef9;
+  border-radius: 14px;
+  color: #9162b5;
+  height: 48px;
+  padding: 8px;
+  width: 48px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: rotate(-6deg);
+}
+
+.welcome-page .how-to-play-card h2 {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+  margin: 8px 0 12px;
+}
+
+.play-card-intro {
+  color: #787180;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+
+.welcome-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.welcome-steps li {
+  align-items: start;
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 15px;
+  padding: 15px 0;
+}
+
+.welcome-steps li + li {
+  border-top: 1px solid #f1edf5;
+}
+
+.step-number {
+  align-items: center;
+  background: #f4eef9;
+  border-radius: 50%;
+  color: #8252a9;
+  display: flex;
+  font-size: 10px;
+  font-weight: 750;
+  height: 32px;
+  justify-content: center;
+}
+
+.welcome-steps h3 {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0 0 5px;
+}
+
+.welcome-steps p {
+  color: #787180;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.play-card-footer {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  border-top: 1px solid #e9e2ee;
+  color: #8252a9;
+  font-size: 11px;
+  margin-top: 12px;
+  padding-top: 20px;
+}
+
+.play-card-footer > span {
+  font-size: 19px;
+}
+
+.welcome-footer {
+  border-top: 1px solid #e4ddeb;
+  color: #787180;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 10px;
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: 1240px;
+  padding-top: 22px;
+}
+
+@media (max-width: 900px) {
+  .welcome-page .welcome-layout {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .welcome-actions {
+    justify-items: center;
+  }
+
+  .welcome-stats {
+    justify-content: center;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .welcome-page .welcome-content h1 {
+    font-size: clamp(36px, 6vw, 56px);
+  }
+}
+
+@media (max-width: 480px) {
+  .welcome-page .welcome-content h1 {
+    font-size: clamp(29px, 7.8vw, 37px);
+  }
+
+  .welcome-page .welcome-content > p {
+    font-size: 15px;
+  }
+
+  .welcome-footer {
+    justify-content: center;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-page .welcome-button {
+    transition: none;
+    transform: none;
+  }
+}

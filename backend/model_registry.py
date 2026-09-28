@@ -1,10 +1,8 @@
 from fastapi import HTTPException
+from .difficulty import default_difficulties
 
 from . import model_service as pytorch_20
-from . import (
-    tensorflow_model_service
-    as tensorflow_50
-)
+from . import tensorflow_model_service as tensorflow_50
 
 
 MODEL_SERVICES = {
@@ -39,7 +37,7 @@ MODEL_CLASSES = {
 }
 
 
-def get_available_models() -> list[dict]:
+def get_available_models(difficulties_by_model=None) -> list[dict]:
     return [
         {
             "key": model_key,
@@ -50,6 +48,9 @@ def get_available_models() -> list[dict]:
             "number_of_classes": len(
                 service["classes"]
             ),
+            "classes": service["classes"],
+            "class_difficulties": (difficulties_by_model or {}).get(
+                model_key, default_difficulties(service["classes"])),
         }
         for model_key, service
         in MODEL_SERVICES.items()

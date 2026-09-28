@@ -32,6 +32,17 @@ async function apiRequest(path, options = {}) {
   return data;
 }
 
+export function getAdminSettings() {
+  return apiRequest("/admin");
+}
+
+export function updateAdminSettings(settings) {
+  return apiRequest("/admin", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
 export function joinMatchmaking(name) {
   return apiRequest("/matchmaking/join", {
     method: "POST",
@@ -91,5 +102,15 @@ export function leaveGame(gameId, playerId) {
     body: JSON.stringify({
       player_id: playerId,
     }),
+  });
+}
+
+export function getLeaderboard() {
+  return apiRequest("/leaderbord");
+}
+
+export function resetDashboard() {
+  return apiRequest("/admin/reset-dashboard", {
+    method: "POST",
   });
 }

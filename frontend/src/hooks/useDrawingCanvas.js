@@ -61,6 +61,7 @@ export default function useDrawingCanvas({
 }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
+  const activePointerRef = useRef(null);
   const enabledRef = useRef(false);
 
   const predictionTimerRef = useRef(null);
@@ -90,6 +91,7 @@ export default function useDrawingCanvas({
 
     if (!drawingEnabled) {
       drawingRef.current = false;
+      activePointerRef.current = null;
 
       window.clearTimeout(
         predictionTimerRef.current,
@@ -102,6 +104,7 @@ export default function useDrawingCanvas({
   useEffect(() => {
     drawingVersionRef.current += 1;
     drawingRef.current = false;
+    activePointerRef.current = null;
     drawingChangedRef.current = false;
 
     window.clearTimeout(
@@ -219,7 +222,7 @@ export default function useDrawingCanvas({
     }, [predictDrawing]);
 
   function startDrawing(event) {
-    if (!enabledRef.current) return;
+    if (!enabledRef.current || !event.isPrimary || event.button !== 0 || drawingRef.current) return;
 
     event.preventDefault();
 
@@ -238,6 +241,7 @@ export default function useDrawingCanvas({
     );
 
     drawingRef.current = true;
+    activePointerRef.current = event.pointerId;
 
     context.beginPath();
     context.moveTo(point.x, point.y);
@@ -255,6 +259,7 @@ export default function useDrawingCanvas({
   function continueDrawing(event) {
     if (
       !drawingRef.current ||
+      event.pointerId !== activePointerRef.current ||
       !enabledRef.current
     ) {
       return;
@@ -280,8 +285,10 @@ export default function useDrawingCanvas({
 
   function stopDrawing(event) {
     if (!drawingRef.current) return;
+    if (event?.pointerId !== undefined && event.pointerId !== activePointerRef.current) return;
 
     drawingRef.current = false;
+    activePointerRef.current = null;
 
     if (
       event?.pointerId !== undefined &&
@@ -300,6 +307,7 @@ export default function useDrawingCanvas({
   function clearDrawing() {
     drawingVersionRef.current += 1;
     drawingRef.current = false;
+    activePointerRef.current = null;
     drawingChangedRef.current = false;
 
     window.clearTimeout(

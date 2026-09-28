@@ -1,7 +1,9 @@
+import BrandLogos from "./BrandLogos";
+
 export default function Brand({
   connection,
 }) {
-  let connectionText = "AI ready";
+  let connectionText = "Ready";
 
   if (connection === "connecting") {
     connectionText = "Connecting";
@@ -16,22 +18,8 @@ export default function Brand({
   }
 
   return (
-    <nav className="navigation">
-      <div className="brand">
-        <div className="brand-mark">
-          AI
-        </div>
-
-        <div>
-          <div className="brand-name">
-            Pictionary
-          </div>
-
-          <div className="brand-event">
-            TEDx Colombo
-          </div>
-        </div>
-      </div>
+    <header className="navigation">
+      <BrandLogos />
 
       <div
         className={`connection connection--${
@@ -41,6 +29,6 @@ export default function Brand({
         <span className="connection-dot" />
         {connectionText}
       </div>
-    </nav>
+    </header>
   );
 }
