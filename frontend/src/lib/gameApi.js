@@ -11,11 +11,15 @@ export const WS_URL = API_URL.replace(
 
 async function apiRequest(path, options = {}) {
   const started = Date.now();
+  // AbortSignal.timeout is unavailable in some mobile browsers.
+  const controller = options.signal ? null : new AbortController();
+  const timeout = controller ? window.setTimeout(() => controller.abort(), 15000) : null;
+  try {
   const response = await fetch(
     `${API_URL}${path}`,
     {
       ...options,
-      signal: options.signal ?? AbortSignal.timeout(15000),
+      signal: options.signal ?? controller.signal,
       headers: {
         ...(options.body ? { "Content-Type": "application/json" } : {}),
         ...(options.headers || {}),
@@ -37,6 +41,9 @@ async function apiRequest(path, options = {}) {
   observeServerClock(state.server_time, started, Date.now());
 
   return data;
+  } finally {
+    if (timeout !== null) window.clearTimeout(timeout);
+  }
 }
 
 export function getAdminSettings() {

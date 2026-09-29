@@ -61,7 +61,10 @@ files on the deployment host. Do not put secrets in frontend environment variabl
 Production pages check backend readiness before entering the app. If the server
 is slow to respond, an estimated 60-second wake-up countdown appears, continuing
 to check after the estimate expires. Development mode and localhost bypass this
-screen. No additional environment variables are required.
+screen. If readiness still fails after two minutes, a connection error and retry
+button replace the countdown. Startup requests allow up to 60 seconds, and checks
+resume when a mobile tab returns to the foreground. No additional environment
+variables are required.
 
 Round prompts are delivered 750 ms ahead of their shared reveal time. Browsers
 estimate the server clock from HTTP round trips, and ignore older game snapshots.
