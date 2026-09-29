@@ -1,4 +1,5 @@
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from .config import CORS_ORIGINS
 
@@ -56,6 +57,7 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=3600,
 )
 
 
@@ -78,6 +80,7 @@ def root():
 def health():
     return {
         "status": "ok",
+        "server_time": time.time(),
 
         "model": {
             "number_of_classes": len(classes),
@@ -232,6 +235,7 @@ async def game_prediction(
     if waiting is not None:
         return waiting
 
+    round_token = game.transition_token
     prediction_result = (
         await asyncio.to_thread(
             predict_drawing,
@@ -244,6 +248,7 @@ async def game_prediction(
         game_id=game_id,
         player_id=request.player_id,
         prediction_result=prediction_result,
+        round_token=round_token,
     )
 
 
@@ -280,7 +285,9 @@ async def leaderboard_websocket(websocket: WebSocket):
     game_manager.leaderboard_subscribers.add(updates)
     try:
         while True:
-            await websocket.send_json(game_manager.leaderboard())
+            rows = await asyncio.to_thread(game_manager.leaderboard_rows)
+            snapshot = game_manager.leaderboard(rows)
+            await websocket.send_json(snapshot)
             try:
                 # Winner decisions wake this immediately. Periodic snapshots
                 # also refresh joins, resets, and completed-game totals.

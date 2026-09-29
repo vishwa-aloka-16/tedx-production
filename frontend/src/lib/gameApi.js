@@ -1,3 +1,5 @@
+import { observeServerClock } from "./serverClock";
+
 export const API_URL =
   import.meta.env.VITE_API_URL ||
   "http://127.0.0.1:8000";
@@ -8,12 +10,14 @@ export const WS_URL = API_URL.replace(
 );
 
 async function apiRequest(path, options = {}) {
+  const started = Date.now();
   const response = await fetch(
     `${API_URL}${path}`,
     {
       ...options,
+      signal: options.signal ?? AbortSignal.timeout(15000),
       headers: {
-        "Content-Type": "application/json",
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
         ...(options.headers || {}),
       },
     },
@@ -28,6 +32,9 @@ async function apiRequest(path, options = {}) {
       data.detail || "Something went wrong.",
     );
   }
+
+  const state = data.game ?? data;
+  observeServerClock(state.server_time, started, Date.now());
 
   return data;
 }
@@ -113,4 +120,8 @@ export function resetDashboard() {
   return apiRequest("/admin/reset-dashboard", {
     method: "POST",
   });
+}
+
+export function checkBackend(signal) {
+  return apiRequest("/health", { signal, cache: "no-store" });
 }

@@ -58,9 +58,20 @@ files on the deployment host. Do not put secrets in frontend environment variabl
 
 ## Checks
 
+Production pages check backend readiness before entering the app. If the server
+is slow to respond, an estimated 60-second wake-up countdown appears, continuing
+to check after the estimate expires. Development mode and localhost bypass this
+screen. No additional environment variables are required.
+
+Round prompts are delivered 750 ms ahead of their shared reveal time. Browsers
+estimate the server clock from HTTP round trips, and ignore older game snapshots.
+This reduces ordinary delivery skew; clients with network delays beyond the lead
+time can still receive a prompt late. Deploy frontend and backend together.
+
 ```sh
 python -m unittest backend.test_game_manager
 cd frontend
+node --test tests/*.test.js
 npm run lint
 npm run build
 ```

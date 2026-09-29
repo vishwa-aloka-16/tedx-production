@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getGame, WS_URL } from "../lib/gameApi";
+import { newerGame } from "../lib/serverClock";
 
 export default function useGameConnection(session) {
   const socketRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const heartbeatRef = useRef(null);
 
-  const [game, setGame] = useState(null);
+  const [game, updateGame] = useState(null);
+  const setGame = useCallback((state) => updateGame((current) => newerGame(current, state)), []);
   const [connection, setConnection] =
     useState("disconnected");
 
@@ -136,7 +138,7 @@ export default function useGameConnection(session) {
         socketRef.current = null;
       }
     };
-  }, [session?.gameId, session?.playerId]);
+  }, [session, setGame]);
 
   return {
     game,

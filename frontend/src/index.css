@@ -1771,3 +1771,7 @@ a:focus-visible {
   .game-page .guess-section, .game-page .confidence-section { padding: 4px 0; }
   .game-page .judge-section { padding-top: 0; }
 }
+/* Backend readiness screen shares the application's existing card styling. */
+.backend-wake-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+.backend-wake-page .connection-error-card { width: min(100%, 560px); text-align: center; }
+.backend-wake-countdown { font-size: clamp(2rem, 8vw, 4rem); font-weight: 800; font-variant-numeric: tabular-nums; margin: 24px 0; }

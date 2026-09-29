@@ -290,6 +290,61 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         with patch("backend.game_manager.time.time", return_value=101.0):
             self.assertEqual(self.manager.prediction_wait_response(game)["required_hits"], 7)
 
+    async def test_slow_socket_does_not_delay_other_player(self):
+        game = self.create_game(self.manager.classes)
+        release_slow = asyncio.Event()
+        fast_received = asyncio.Event()
+        slow = Mock()
+        fast = Mock()
+        slow.send_json = AsyncMock(side_effect=lambda payload: None)
+
+        async def send_slow(payload):
+            await release_slow.wait()
+
+        async def send_fast(payload):
+            fast_received.set()
+
+        slow.send_json.side_effect = send_slow
+        fast.send_json = AsyncMock(side_effect=send_fast)
+        self.manager.connections[game.id] = [(slow, "one"), (fast, "two")]
+        task = asyncio.create_task(GameManager.broadcast(self.manager, game))
+        try:
+            await asyncio.wait_for(fast_received.wait(), timeout=0.2)
+            self.assertFalse(task.done())
+        finally:
+            release_slow.set()
+            await task
+
+    async def test_previous_round_inference_cannot_change_new_round(self):
+        game = self.create_game(self.manager.classes)
+        game.phase = "DRAWING"
+        game.transition_token = 4
+        response = await self.manager.record_prediction(
+            game.id, "one", {"prediction": "cat", "confidence": 1.0}, round_token=3)
+        self.assertTrue(response["round_finished"])
+        self.assertEqual(game.players["one"].predictions_seen, 0)
+
+    def test_scheduled_prompt_cannot_be_judged_before_reveal(self):
+        game = self.create_game(self.manager.classes)
+        game.phase = "DRAWING"
+        game.round_number = 1
+        game.round_started_at = 101.0
+        with patch("backend.game_manager.time.time", return_value=100.25):
+            self.assertEqual(self.manager.prediction_wait_response(game)["retry_after_seconds"], 0.75)
+        with patch("backend.game_manager.time.time", return_value=101.0):
+            self.assertIsNone(self.manager.prediction_wait_response(game))
+
+    async def test_prompt_is_prepared_before_shared_start_deadline(self):
+        game = self.create_game(self.manager.classes)
+        game.phase = "COUNTDOWN"
+        game.countdown_ends_at = 103.0
+        with patch("backend.game_manager.time.time", return_value=100.0):
+            await self.manager.begin_round_after_countdown(game.id, game.transition_token)
+        self.sleep.target.sleep.assert_any_await(2.25)
+        self.assertEqual(game.round_started_at, 103.0)
+        self.assertEqual(game.round_deadline, 193.0)
+        self.assertTrue(game.prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

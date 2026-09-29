@@ -1,5 +1,6 @@
 import { useState } from "react";
 import BrandLogos from "./components/BrandLogos";
+import BackendGate from "./components/BackendGate";
 
 import useGameConnection from "./hooks/useGameConnection";
 
@@ -24,6 +25,10 @@ import AdminScreen from "./screens/AdminScreen";
 import LeaderboardScreen from "./screens/LeaderboardScreen";
 
 export default function App() {
+  return <BackendGate><AppRoutes /></BackendGate>;
+}
+
+function AppRoutes() {
   if (window.location.pathname === "/admin") {
     return <AdminScreen />;
   }

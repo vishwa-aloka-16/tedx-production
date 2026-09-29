@@ -6,6 +6,7 @@ import {
 
 import useDrawingCanvas from "../hooks/useDrawingCanvas";
 import BrandLogos from "../components/BrandLogos";
+import { serverNow } from "../lib/serverClock";
 
 import {
   formatPrompt,
@@ -70,7 +71,7 @@ function CountdownOverlay({
     <div className="game-overlay">
       <section className="countdown-card">
         <span>
-          ROUND {game.round_number + 1}
+          ROUND {game.countdown_round ?? game.round_number + 1}
         </span>
 
         <strong>{seconds}</strong>
@@ -274,26 +275,36 @@ function FinalResultOverlay({
 }
 
 export default function GameScreen({
-  game,
+  game: receivedGame,
   playerId,
   connection,
   onRestart,
   onExit,
 }) {
   const [now, setNow] = useState(
-    Date.now() / 1000,
+    serverNow,
   );
 
   useEffect(() => {
     const interval =
       window.setInterval(() => {
-        setNow(Date.now() / 1000);
+        setNow(serverNow());
       }, 100);
 
     return () => {
       window.clearInterval(interval);
     };
   }, []);
+
+  // The prompt arrives ahead of time; reveal it on the shared server clock.
+  const awaitingStart = receivedGame.phase === "DRAWING" && now < receivedGame.round_started_at;
+  const game = awaitingStart ? {
+    ...receivedGame,
+    phase: "COUNTDOWN",
+    prompt: "",
+    countdown_ends_at: receivedGame.round_started_at,
+    countdown_round: receivedGame.round_number,
+  } : receivedGame;
 
   const currentPlayer =
     game.players.find(

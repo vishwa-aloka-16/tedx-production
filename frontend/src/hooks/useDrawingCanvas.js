@@ -74,6 +74,7 @@ export default function useDrawingCanvas({
 
   const drawingVersionRef = useRef(0);
   const hasDrawingRef = useRef(false);
+  const cachedImageRef = useRef(null);
 
   const [prediction, setPrediction] =
     useState(null);
@@ -108,6 +109,7 @@ export default function useDrawingCanvas({
     activePointerRef.current = null;
     drawingChangedRef.current = false;
     hasDrawingRef.current = false;
+    cachedImageRef.current = null;
 
     window.clearTimeout(
       predictionTimerRef.current,
@@ -153,10 +155,8 @@ export default function useDrawingCanvas({
       let retryDelay = PREDICTION_DELAY_MS;
 
       try {
-        const imageDataUrl =
-          canvasRef.current.toDataURL(
-            "image/png",
-          );
+        const imageDataUrl = cachedImageRef.current ?? canvasRef.current.toDataURL("image/png");
+        cachedImageRef.current = imageDataUrl;
 
         const result =
           await submitDrawing(
@@ -230,6 +230,7 @@ export default function useDrawingCanvas({
 
       drawingChangedRef.current = true;
       hasDrawingRef.current = true;
+      cachedImageRef.current = null;
 
       if (
         predictionRunningRef.current ||
@@ -332,6 +333,7 @@ export default function useDrawingCanvas({
   }
 
   function clearDrawing() {
+    cachedImageRef.current = null;
     drawingVersionRef.current += 1;
     drawingRef.current = false;
     activePointerRef.current = null;

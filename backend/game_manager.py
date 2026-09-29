@@ -22,6 +22,7 @@ MAX_PLAYERS = 2
 MAX_ROUNDS = 6
 ROUND_SECONDS = 90
 COUNTDOWN_SECONDS = 3
+PROMPT_DELIVERY_LEAD_SECONDS = 0.75
 ROUND_RESULT_SECONDS = 6
 
 CONFIDENCE_THRESHOLD = 0.4
@@ -199,7 +200,7 @@ class GameManager:
 
         game.leaderboard_recorded = True
 
-    def leaderboard(self) -> dict[str, Any]:
+    def leaderboard_rows(self):
         with sqlite3.connect(self.leaderboard_path) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
@@ -210,6 +211,11 @@ class GameManager:
                 LIMIT 20
                 """
             ).fetchall()
+        return rows
+
+    def leaderboard(self, rows=None) -> dict[str, Any]:
+        if rows is None:
+            rows = self.leaderboard_rows()
 
         players = [
             {
@@ -441,6 +447,8 @@ class GameManager:
 
         return {
             "id": game.id,
+            "snapshot_seq": time.monotonic_ns(),
+            "server_time": time.time(),
             "model_key": game.model_key,
             "phase": game.phase,
 
@@ -543,34 +551,20 @@ class GameManager:
             "game": self.public_state(game),
         }
 
-        active_connections = []
-
-        for (
-            websocket,
-            player_id,
-        ) in self.connections.get(
-            game.id,
-            [],
-        ):
+        async def send(connection):
+            websocket, _ = connection
             try:
-                await websocket.send_json(
-                    payload
-                )
-
-                active_connections.append(
-                    (
-                        websocket,
-                        player_id,
-                    )
-                )
-
+                await asyncio.wait_for(websocket.send_json(payload), timeout=1.0)
             except Exception:
-                # Remove dead connections.
-                pass
+                self.disconnect_websocket(game.id, websocket)
+                try:
+                    await asyncio.wait_for(websocket.close(code=1013), timeout=0.25)
+                except Exception:
+                    pass
 
-        self.connections[
-            game.id
-        ] = active_connections
+        # A slow browser must not delay delivery to the other player.
+        await asyncio.gather(*(send(connection) for connection in
+                               list(self.connections.get(game.id, []))))
 
     async def connect_websocket(
         self,
@@ -812,9 +806,11 @@ class GameManager:
         game_id: str,
         countdown_token: int,
     ):
-        await asyncio.sleep(
-            COUNTDOWN_SECONDS
-        )
+        game = self.games.get(game_id)
+        if game is None:
+            return
+        await asyncio.sleep(max(0, (game.countdown_ends_at or time.time()) - time.time()
+                                - PROMPT_DELIVERY_LEAD_SECONDS))
 
         game = self.games.get(game_id)
 
@@ -867,11 +863,13 @@ class GameManager:
             game.round_number += 1
             game.phase = "DRAWING"
 
-            game.countdown_ends_at = None
-
-            game.round_started_at = (
-                time.time()
+            # Deliver the prompt before its common reveal time, absorbing normal
+            # network differences between the players without shortening play.
+            game.round_started_at = max(
+                game.countdown_ends_at or 0,
+                time.time() + PROMPT_DELIVERY_LEAD_SECONDS,
             )
+            game.countdown_ends_at = None
 
             game.round_deadline = (
                 game.round_started_at
@@ -913,7 +911,8 @@ class GameManager:
         if game is None:
             return
 
-        await asyncio.sleep(game.round_seconds * LATE_ROUND_FRACTION)
+        await asyncio.sleep(max(0, (game.round_started_at or time.time())
+                                + game.round_seconds * LATE_ROUND_FRACTION - time.time()))
 
         game_lock = self.game_locks.get(game_id)
         if game_lock is None:
@@ -926,7 +925,7 @@ class GameManager:
                 await self.finish_round(game, winner=winner)
                 return
 
-        await asyncio.sleep(game.round_seconds * (1 - LATE_ROUND_FRACTION))
+        await asyncio.sleep(max(0, (game.round_deadline or time.time()) - time.time()))
 
         game = self.games.get(game_id)
 
@@ -972,11 +971,12 @@ class GameManager:
 
     @staticmethod
     def prediction_wait_response(game: Game) -> dict | None:
-        if game.phase != "DRAWING" or game.round_number != game.max_rounds:
+        if game.phase != "DRAWING":
             return None
         elapsed = (time.time() - game.round_started_at
                    if game.round_started_at is not None else 0)
-        remaining = FINAL_ROUND_DRAW_SECONDS - elapsed
+        minimum = FINAL_ROUND_DRAW_SECONDS if game.round_number == game.max_rounds else 0
+        remaining = minimum - elapsed
         if remaining <= 0:
             return None
         return {
@@ -994,6 +994,7 @@ class GameManager:
         game_id: str,
         player_id: str,
         prediction_result: dict,
+        round_token: int | None = None,
     ) -> dict:
         game = self.get_game(game_id)
 
@@ -1007,7 +1008,7 @@ class GameManager:
                 player_id,
             )
 
-            if game.phase != "DRAWING":
+            if game.phase != "DRAWING" or (round_token is not None and round_token != game.transition_token):
                 return {
                     **prediction_result,
                     "accepted": False,
