@@ -1775,3 +1775,7 @@ a:focus-visible {
 .backend-wake-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
 .backend-wake-page .connection-error-card { width: min(100%, 560px); text-align: center; }
 .backend-wake-countdown { font-size: clamp(2rem, 8vw, 4rem); font-weight: 800; font-variant-numeric: tabular-nums; margin: 24px 0; }
+.backend-connection-notice { position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 100; max-width: 420px; margin: auto; padding: 14px 18px; border: 1px solid #ed3939; border-radius: 14px; background: #17171d; color: #fff; box-shadow: 0 4px 24px #0005; }
+.backend-connection-notice p { margin: 6px 0; font-size: 0.85rem; }
+.backend-connection-notice .primary-button { padding: 8px 14px; min-height: 36px; margin-top: 8px; }
+.connection-notice-dismiss { float: right; background: transparent; color: inherit; border: 0; font-size: 1.4rem; cursor: pointer; padding: 0 4px; }

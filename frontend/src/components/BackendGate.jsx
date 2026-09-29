@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import BrandLogos from "./BrandLogos";
 import { checkBackend } from "../lib/gameApi";
-import { bypassWakeScreen } from "../lib/backendReadiness";
+import { bypassWakeScreen, subscribeBackendReady } from "../lib/backendReadiness";
 
 export default function BackendGate({ children }) {
   const bypass = bypassWakeScreen(window.location.hostname, import.meta.env.DEV);
@@ -9,6 +8,7 @@ export default function BackendGate({ children }) {
   const [elapsed, setElapsed] = useState(0);
   const [failure, setFailure] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     if (bypass) return undefined;
@@ -34,6 +34,17 @@ export default function BackendGate({ children }) {
     }
     const ticker = window.setInterval(updateElapsed, 1000);
 
+    function markReady() {
+      if (!active) return;
+      finished = true;
+      setReady(true);
+      window.clearInterval(ticker);
+      window.clearTimeout(retryTimer);
+      controller?.abort();
+    }
+    // A working game request proves reachability even if /health is delayed.
+    const unsubscribe = subscribeBackendReady(markReady);
+
     async function check() {
       if (!active || finished || inFlight) return;
       if (Date.now() - started >= 120000) { stopWaiting(); return; }
@@ -45,9 +56,7 @@ export default function BackendGate({ children }) {
       try {
         const result = await checkBackend(controller.signal);
         if (active && !finished && result.status === "ok") {
-          finished = true;
-          setReady(true);
-          window.clearInterval(ticker);
+          markReady();
           return;
         }
       } catch {
@@ -78,16 +87,17 @@ export default function BackendGate({ children }) {
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("online", resume);
       window.removeEventListener("pageshow", resume);
+      unsubscribe();
     };
   }, [bypass, attempt]);
 
-  if (ready) return children;
   const remaining = Math.max(0, 60 - elapsed);
   return (
-    <main className="loading-page backend-wake-page">
-      <section className="connection-error-card" aria-busy={!failure}>
-        <BrandLogos />
-        <h1>{failure ? "Unable to connect" : elapsed < 2 ? "Connecting to the game" : "Getting the game ready"}</h1>
+    <>
+      {children}
+      {!ready && !dismissed && elapsed >= 5 && <aside className="backend-connection-notice">
+        <button type="button" className="connection-notice-dismiss" aria-label="Dismiss connection notice" onClick={() => setDismissed(true)}>×</button>
+        <strong>{failure ? "Unable to reach the game server" : "Checking the game connection"}</strong>
         {failure ? <>
           <p role="alert">{failure}</p>
           <button className="primary-button" onClick={() => {
@@ -95,13 +105,10 @@ export default function BackendGate({ children }) {
             setFailure("");
             setAttempt((value) => value + 1);
           }}>Try again</button>
-        </> : elapsed >= 2 && <>
-          <p>The server may be waking up. You’ll enter automatically when it’s ready.</p>
-          <div className="backend-wake-countdown" role="timer">{remaining > 0 ? `${remaining}s` : "Still connecting…"}</div>
-          <p>{remaining > 0 ? "Estimated wait — it may take longer." : "The server is taking longer than expected. We’re still checking."}</p>
-          {elapsed >= 90 && <p>If this continues, check your connection or try again later.</p>}
+        </> : <>
+          <p>{remaining > 0 ? `Startup estimate: ${remaining}s. The welcome page is available while we check.` : "The game server hasn’t responded. Check your connection or try another network."}</p>
         </>}
-      </section>
-    </main>
+      </aside>}
+    </>
   );
 }

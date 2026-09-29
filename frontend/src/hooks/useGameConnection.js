@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getGame, WS_URL } from "../lib/gameApi";
 import { newerGame } from "../lib/serverClock";
+import { notifyBackendReady } from "../lib/backendReadiness";
 
 export default function useGameConnection(session) {
   const socketRef = useRef(null);
@@ -91,6 +92,7 @@ export default function useGameConnection(session) {
           const message = JSON.parse(event.data);
 
           if (message.type === "game_state") {
+            notifyBackendReady();
             setGame(message.game);
           }
         } catch {

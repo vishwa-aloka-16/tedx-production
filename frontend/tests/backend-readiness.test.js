@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
-import { bypassWakeScreen } from "../src/lib/backendReadiness.js";
+import { bypassWakeScreen, subscribeBackendReady, notifyBackendReady } from "../src/lib/backendReadiness.js";
 
 // Test readiness lifecycle independently of the component's presentation.
 const source = readFileSync(new URL("../src/components/BackendGate.jsx", import.meta.url), "utf8")
   .replace(/^import .*;\r?$/gm, "")
   .replace("export default function", "function")
   .replace("import.meta.env.DEV", "false")
-  .split("  if (ready) return children;")[0] + "}\nglobalThis.run = BackendGate;";
+  .split("  const remaining =")[0] + "}\nglobalThis.run = BackendGate;";
 
 function setup(hostname, check) {
   const timers = new Map();
@@ -20,7 +20,7 @@ function setup(hostname, check) {
   let tick;
   const listeners = new Map();
   const context = vm.createContext({
-    AbortController, bypassWakeScreen, checkBackend: check,
+    AbortController, bypassWakeScreen, subscribeBackendReady, checkBackend: check,
     Date: { now: () => now },
     document: {
       visibilityState: "visible",
@@ -109,4 +109,15 @@ test("returning to the phone tab immediately retries an idle check", async () =>
   assert.equal(h.states[0], true);
   h.cleanup();
   assert.equal(h.listeners.size, 0);
+});
+
+test("successful gameplay dismisses the indicator even when health cannot load", async () => {
+  const h = setup("jkit-tedx.onrender.com", (signal) => new Promise((resolve, reject) => {
+    signal.addEventListener("abort", () => reject(new Error("aborted")));
+  }));
+  notifyBackendReady();
+  await new Promise((done) => setImmediate(done));
+  assert.equal(h.states[0], true);
+  assert.equal(h.timers.size, 0);
+  h.cleanup();
 });

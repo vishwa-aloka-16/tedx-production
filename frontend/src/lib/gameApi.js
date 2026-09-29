@@ -1,4 +1,5 @@
 import { observeServerClock } from "./serverClock";
+import { notifyBackendReady } from "./backendReadiness";
 
 export const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -39,6 +40,7 @@ async function apiRequest(path, options = {}) {
 
   const state = data.game ?? data;
   observeServerClock(state.server_time, started, Date.now());
+  notifyBackendReady();
 
   return data;
   } finally {
