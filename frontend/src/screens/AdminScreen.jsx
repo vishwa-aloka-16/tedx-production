@@ -10,9 +10,9 @@ import {
 export default function AdminScreen() {
   const [models, setModels] = useState([]);
   const [settings, setSettings] = useState(null);
-  const [roundSeconds, setRoundSeconds] = useState(90);
-  const [requiredHits, setRequiredHits] = useState(3);
-  const [confidencePercent, setConfidencePercent] = useState(40);
+  const [roundSeconds, setRoundSeconds] = useState(30);
+  const [requiredHits, setRequiredHits] = useState(1);
+  const [confidencePercent, setConfidencePercent] = useState(30);
   const [excludedClasses, setExcludedClasses] = useState([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -24,8 +24,8 @@ export default function AdminScreen() {
         setModels(result.models || []);
         setSettings(result.settings);
         setRoundSeconds(result.settings.round_seconds);
-        setRequiredHits(result.settings.required_hits ?? 3);
-        setConfidencePercent(Math.round((result.settings.confidence_threshold ?? 0.4) * 100));
+        setRequiredHits(result.settings.required_hits ?? 1);
+        setConfidencePercent(Math.round((result.settings.confidence_threshold ?? 0.3) * 100));
         setExcludedClasses(
           result.settings.classes
             .filter((item) => !item.enabled)

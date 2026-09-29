@@ -8,35 +8,41 @@ const source = readFileSync(new URL("../src/hooks/useDrawingCanvas.js", import.m
   .replace(/import\s*\{[\s\S]*?\}\s*from\s*"[^"]+";/g, "")
   .replace("export default function", "function");
 
-function harness(respond) {
+function harness(respond, options = {}) {
   const timers = new Map();
   const effects = [];
   let id = 0;
   let calls = 0;
+  let strokes = 0;
+  let clears = 0;
+  const uploads = [];
   const context = vm.createContext({
     useRef: (current) => ({ current }),
     useState: (value) => [value, () => {}],
     useCallback: (fn) => fn,
     useEffect: (fn) => effects.push(fn),
     submitDrawing: async () => respond(++calls),
+    submitRoundDrawing: async (...args) => { uploads.push(args); },
+    options,
     window: {
       setTimeout: (fn, delay) => { timers.set(++id, { fn, delay }); return id; },
       clearTimeout: (key) => timers.delete(key),
       requestAnimationFrame: (fn) => fn(),
     },
   });
-  vm.runInContext(`${source}\nglobalThis.hook = useDrawingCanvas({gameId: 'g', playerId: 'p', roundNumber: 1, phase: 'DRAWING'});`, context);
+  vm.runInContext(`${source}\nglobalThis.hook = useDrawingCanvas({gameId: 'g', playerId: 'p', roundNumber: 1, phase: 'DRAWING', ...options});`, context);
   const hook = context.hook;
   hook.canvasRef.current = {
     width: 560, height: 560,
-    getContext: () => ({ fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {} }),
+    getContext: () => ({ fillRect() { clears++; }, beginPath() {}, moveTo() {}, lineTo() {}, stroke() { strokes++; } }),
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 560, height: 560 }),
     setPointerCapture() {}, hasPointerCapture: () => false,
-    toDataURL: () => "data:image/png;base64,test",
+    toDataURL: () => `data:image/png;base64,strokes-${strokes}`,
   };
   const cleanups = effects.map((fn) => fn()).filter(Boolean);
   return {
     hook, timers,
+    uploads, clears: () => clears, strokes: () => strokes,
     calls: () => calls,
     draw() {
       hook.startDrawing({ isPrimary: true, button: 0, pointerId: 1, clientX: 10, clientY: 10, preventDefault() {} });
@@ -96,4 +102,28 @@ test("temporary network errors retry with a backoff", async () => {
   const h = harness(() => { throw new Error("Failed to fetch"); });
   h.draw(); await h.tick();
   assert.equal([...h.timers.values()][0].delay, 1500);
+});
+
+test("two cosmetic seconds preserve the canvas, allow strokes, and upload only the final winner image", async () => {
+  const h = harness(() => { throw new Error("must not predict after winner decided"); },
+    { phase: "ROUND_RESULT", roundEventId: "event", roundWinnerId: "p" });
+  assert.equal(h.clears(), 0);
+  assert.equal([...h.timers.values()][0].delay, 2000);
+  h.draw(); h.draw();
+  assert.equal(h.calls(), 0);
+  await h.tick();
+  assert.equal(h.uploads.length, 1);
+  assert.deepEqual(h.uploads[0], ["g", "p", "event", "data:image/png;base64,strokes-2"]);
+  h.draw();
+  assert.equal(h.strokes(), 2);
+});
+
+test("opponent also gets two cosmetic seconds but cannot upload a winner image", async () => {
+  const h = harness(() => ({}), { phase: "ROUND_RESULT", roundEventId: "event", roundWinnerId: "other" });
+  h.draw();
+  assert.equal(h.strokes(), 1);
+  assert.equal([...h.timers.values()][0].delay, 2000);
+  await h.tick();
+  assert.equal(h.calls(), 0);
+  assert.equal(h.uploads.length, 0);
 });

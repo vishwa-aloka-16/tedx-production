@@ -9,8 +9,8 @@ class MatchmakingRequest(BaseModel):
 
 
 class AdminSettingsRequest(BaseModel):
-    required_hits: int = Field(default=3, ge=1, le=10, strict=True)
-    confidence_threshold: float = Field(default=0.4, ge=0.01, le=1.0)
+    required_hits: int = Field(default=1, ge=1, le=10, strict=True)
+    confidence_threshold: float = Field(default=0.3, ge=0.01, le=1.0)
     class_difficulties: dict[str, str] | None = None
     model_key: str
     round_seconds: int = Field(
@@ -38,3 +38,8 @@ class DrawingRequest(BaseModel):
     image_data_url: str = Field(
         min_length=1,
     )
+
+
+class RoundDrawingRequest(PlayerActionRequest):
+    event_id: str = Field(min_length=1, max_length=100)
+    image_data_url: str = Field(min_length=1, max_length=500000)

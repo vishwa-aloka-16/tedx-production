@@ -79,7 +79,7 @@ export default function EntryScreen({
             </div>
 
             <div>
-              <strong>90</strong>
+              <strong>30</strong>
               <span>Seconds</span>
             </div>
 

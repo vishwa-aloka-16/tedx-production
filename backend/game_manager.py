@@ -1,4 +1,5 @@
 import asyncio
+from collections import OrderedDict
 import math
 import random
 import secrets
@@ -20,13 +21,17 @@ from fastapi import (
 
 MAX_PLAYERS = 2
 MAX_ROUNDS = 6
-ROUND_SECONDS = 90
+ROUND_SECONDS = 30
 COUNTDOWN_SECONDS = 3
 PROMPT_DELIVERY_LEAD_SECONDS = 0.75
 ROUND_RESULT_SECONDS = 6
+COSMETIC_DRAW_SECONDS = 2
+DRAWING_UPLOAD_GRACE_SECONDS = 3
 
-CONFIDENCE_THRESHOLD = 0.4
-REQUIRED_CONSECUTIVE_HITS = 3
+CONFIDENCE_THRESHOLD = 0.3
+REQUIRED_CONSECUTIVE_HITS = 1
+DEFAULT_MODEL_KEY = "tensorflow_50"
+DEFAULT_EXCLUDED_CLASSES = {"helicopter", "bus", "broccoli"}
 MINIMUM_JUDGE_SECONDS = 1.5
 FINAL_ROUND_DRAW_SECONDS = 3.0
 LATE_ROUND_FRACTION = 0.8
@@ -59,7 +64,7 @@ class Game:
     id: str
     required_hits: int = REQUIRED_CONSECUTIVE_HITS
     confidence_threshold: float = CONFIDENCE_THRESHOLD
-    model_key: str = "pytorch_20"
+    model_key: str = DEFAULT_MODEL_KEY
     classes: list[str] = field(default_factory=list)
     class_difficulties: dict[str, str] = field(default_factory=dict)
     round_seconds: int = ROUND_SECONDS
@@ -124,17 +129,19 @@ class GameManager:
             for model_key, classes
             in classes_by_model.items()
         }
-        self.model_key = next(iter(self.classes_by_model))
+        self.model_key = DEFAULT_MODEL_KEY if DEFAULT_MODEL_KEY in self.classes_by_model else next(iter(self.classes_by_model))
         self.round_seconds = ROUND_SECONDS
         self.required_hits = REQUIRED_CONSECUTIVE_HITS
         self.confidence_threshold = CONFIDENCE_THRESHOLD
-        self.excluded_classes: set[str] = set()
+        self.excluded_classes: set[str] = DEFAULT_EXCLUDED_CLASSES.intersection(self.classes_by_model[self.model_key])
         self.difficulties_by_model = {
             key: default_difficulties(classes)
             for key, classes in self.classes_by_model.items()
         }
         self.dashboard_reset_at = 0.0
         self.leaderboard_subscribers: set[asyncio.Queue] = set()
+        # Cosmetic thumbnails only. Bounded RAM cache, never part of SQLite.
+        self.round_drawings: OrderedDict[str, bytes] = OrderedDict()
 
         self.games: dict[
             str,
@@ -216,6 +223,7 @@ class GameManager:
     def leaderboard(self, rows=None) -> dict[str, Any]:
         if rows is None:
             rows = self.leaderboard_rows()
+        now = time.time()
 
         players = [
             {
@@ -244,7 +252,14 @@ class GameManager:
                         key=lambda player: player.seat,
                     )
                 ],
-                "round_winners": game.round_winners,
+                "round_winners": [
+                    {**result, "drawing_url": (
+                        f"/round-drawings/{result['event_id']}"
+                        if result["event_id"] in self.round_drawings else None
+                    )}
+                    for result in game.round_winners
+                    if self.round_result_visible(result, now)
+                ],
                 "game_result": self.game_result(game),
             }
             for game in self.games.values()
@@ -261,6 +276,16 @@ class GameManager:
         }
 
     @staticmethod
+    def round_result_visible(result: dict, now: float) -> bool:
+        if not result.get("winner"):
+            return True
+        # Keep the decision private until cosmetic drawing has finished. Allow
+        # the final upload to arrive; a missing image must not hide scores forever.
+        return now >= result.get("reveal_after", 0) and (
+            result.get("drawing_received", False) or now >= result.get("drawing_deadline", 0)
+        )
+
+    @staticmethod
     def game_result(game: Game) -> dict | None:
         if game.phase != "FINAL_RESULT" or not game.players:
             return None
@@ -274,6 +299,7 @@ class GameManager:
         }
 
     def reset_dashboard(self) -> dict[str, Any]:
+        self.round_drawings.clear()
         with sqlite3.connect(self.leaderboard_path) as connection:
             connection.execute("DELETE FROM leaderboard")
 
@@ -447,6 +473,7 @@ class GameManager:
 
         return {
             "id": game.id,
+            "round_event_id": game.round_winners[-1]["event_id"] if game.phase == "ROUND_RESULT" and game.round_winners else None,
             "snapshot_seq": time.monotonic_ns(),
             "server_time": time.time(),
             "model_key": game.model_key,
@@ -1156,7 +1183,11 @@ class GameManager:
                 "event_id": secrets.token_urlsafe(12),
                 "round": game.round_number,
                 "winner": winner.name if winner else None,
+                "winner_id": winner.id if winner else None,
+                "prompt": game.prompt,
                 "points": game.round_points,
+                "reveal_after": current_time + COSMETIC_DRAW_SECONDS,
+                "drawing_deadline": current_time + COSMETIC_DRAW_SECONDS + DRAWING_UPLOAD_GRACE_SECONDS,
             }
         )
 
@@ -1173,6 +1204,25 @@ class GameManager:
                 result_token,
             )
         )
+
+    async def attach_round_drawing(self, game_id: str, player_id: str, event_id: str, drawing: bytes):
+        game = self.get_game(game_id)
+        self.get_player(game, player_id)
+        async with self.game_locks[game_id]:
+            result = next((item for item in game.round_winners if item["event_id"] == event_id), None)
+            if result is None:
+                raise HTTPException(status_code=409, detail="This round is no longer available.")
+            if result.get("winner_id") != player_id:
+                raise HTTPException(status_code=403, detail="Only the round winner can submit this drawing.")
+            if event_id not in self.round_drawings:
+                self.round_drawings[event_id] = drawing
+                result["drawing_received"] = True
+                while len(self.round_drawings) > 64:
+                    self.round_drawings.popitem(last=False)
+                for queue in self.leaderboard_subscribers:
+                    if not queue.full():
+                        queue.put_nowait(True)
+        return {"status": "ok"}
 
     async def advance_after_result(
         self,

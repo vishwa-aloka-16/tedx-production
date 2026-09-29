@@ -48,6 +48,19 @@ CORS does not provide authentication.
 
 ## Included models
 
+Default game settings are the 50-class model, 30-second rounds, one consecutive
+correct guess, and 30% confidence. Helicopter, bus, and broccoli are excluded from
+the default prompt pool. Admin can override these settings for newly created games.
+
+After a winner is scored, each player gets two unannounced cosmetic seconds to
+finish drawing. Inference stops immediately; the final canvas cannot affect the
+winner, score, or round progression. The leaderboard waits for the two-second
+window and the final image upload before announcing the round winner. If the image
+is missing, it reveals the result after three additional seconds so an upload
+failure cannot hide the result forever. Up to 64 thumbnails are kept in RAM only;
+they disappear on restart, dashboard reset, or cache eviction. They are never
+written to SQLite or disk. Failed uploads do not delay the game.
+
 - `backend/models/best_drawing_cnn_20.pt` with `metadata_20.json`: active 20-class model.
 - `backend/models/best_model.keras` with `metadata_keras.json`: active 50-class model.
 - Other existing checkpoints and metadata are retained for compatibility.

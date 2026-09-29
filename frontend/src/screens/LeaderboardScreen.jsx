@@ -2,9 +2,16 @@ import { useEffect, useRef, useState } from "react";
 
 import Brand from "../components/Brand";
 import BrandLogos from "../components/BrandLogos";
-import { WS_URL } from "../lib/gameApi";
+import { API_URL, WS_URL } from "../lib/gameApi";
 
 const WINNER_ANNOUNCEMENT_MS = 5000;
+
+function WinningDrawing({ url, name, prompt }) {
+  if (!url) return null;
+  return <img className="winning-drawing" src={`${API_URL}${url}`}
+    alt={`${name}'s winning drawing${prompt ? ` of ${prompt}` : ""}`}
+    onError={(event) => { event.currentTarget.hidden = true; }} />;
+}
 
 export default function LeaderboardScreen() {
   const [players, setPlayers] = useState([]);
@@ -41,6 +48,8 @@ export default function LeaderboardScreen() {
                 name: round.winner,
                 round: round.round,
                 points: round.points,
+                drawingUrl: round.drawing_url,
+                prompt: round.prompt,
               })),
           );
 
@@ -53,6 +62,13 @@ export default function LeaderboardScreen() {
           }));
 
           if (initializedRef.current) {
+            // The final canvas arrives after the already-decided winner event.
+            // Update that announcement rather than announcing the round twice.
+            setAnnouncements((current) => current.map((item) => {
+              const updated = completedWins.find((round) => round.key === item.key);
+              return updated?.drawingUrl && updated.drawingUrl !== item.drawingUrl
+                ? { ...item, drawingUrl: updated.drawingUrl, prompt: updated.prompt } : item;
+            }));
             const newWinners = completedWins.filter(
               (round) => !seenRoundsRef.current.has(round.key),
             );
@@ -109,6 +125,7 @@ export default function LeaderboardScreen() {
           {winnerAnnouncement.isGameWinner && <span className="champion-trophy" aria-hidden="true">🏆</span>}
           <span className="winner-announcement-badge">{winnerAnnouncement.isGameWinner ? (winnerAnnouncement.tied ? "GAME DRAW" : "GAME WINNER") : "WINNER"}</span>
           <strong>{winnerAnnouncement.name}</strong>
+          <WinningDrawing url={winnerAnnouncement.drawingUrl} name={winnerAnnouncement.name} prompt={winnerAnnouncement.prompt} />
           <span>
             {winnerAnnouncement.isGameWinner
               ? `${winnerAnnouncement.tied ? "Tied" : "Champion"} with ${winnerAnnouncement.points.toLocaleString()} points`
@@ -192,6 +209,7 @@ export default function LeaderboardScreen() {
                         {round.winner || "No winner"}
                       </strong>
                       {round.points > 0 && <small>+{round.points} pts</small>}
+                      <WinningDrawing url={round.drawing_url} name={round.winner} prompt={round.prompt} />
                     </div>
                   ))}
                 </div>

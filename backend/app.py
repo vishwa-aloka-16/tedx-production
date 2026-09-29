@@ -1,6 +1,8 @@
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from fastapi.responses import Response
+from .round_drawing import thumbnail_bytes
 from .config import CORS_ORIGINS
 
 from .tensorflow_model_service import get_model as warm_tensorflow_model
@@ -30,6 +32,7 @@ from .model_registry import (
 )
 
 from .schemas import (
+    RoundDrawingRequest,
     AdminSettingsRequest,
     DrawingRequest,
     GamePredictionRequest,
@@ -83,15 +86,16 @@ def health():
         "server_time": time.time(),
 
         "model": {
-            "number_of_classes": len(classes),
-            "classes": classes,
+            "model_key": game_manager.model_key,
+            "number_of_classes": len(MODEL_CLASSES[game_manager.model_key]),
+            "classes": MODEL_CLASSES[game_manager.model_key],
 
             "image_size": metadata.get(
                 "image_size",
                 28,
             ),
 
-            "pixel_format": metadata.get(
+            "pixel_format": "black strokes on white background" if game_manager.model_key == "tensorflow_50" else metadata.get(
                 "pixel_format",
                 "white strokes on black background",
             ),
@@ -100,7 +104,7 @@ def health():
         "game": {
             "maximum_players": 2,
             "maximum_rounds": 6,
-            "round_seconds": 90,
+            "round_seconds": game_manager.round_seconds,
         },
     }
 
@@ -261,6 +265,22 @@ async def restart_game(
         game_id=game_id,
         player_id=request.player_id,
     )
+
+
+@app.post("/games/{game_id}/round-drawing")
+async def round_drawing(game_id: str, request: RoundDrawingRequest):
+    game = game_manager.get_game(game_id)
+    game_manager.get_player(game, request.player_id)
+    drawing = await asyncio.to_thread(thumbnail_bytes, request.image_data_url)
+    return await game_manager.attach_round_drawing(game_id, request.player_id, request.event_id, drawing)
+
+
+@app.get("/round-drawings/{event_id}")
+def get_round_drawing(event_id: str):
+    drawing = game_manager.round_drawings.get(event_id)
+    if drawing is None:
+        raise HTTPException(status_code=404, detail="Drawing is no longer available.")
+    return Response(drawing, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/games/{game_id}/leave")

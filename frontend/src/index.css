@@ -1779,3 +1779,6 @@ a:focus-visible {
 .backend-connection-notice p { margin: 6px 0; font-size: 0.85rem; }
 .backend-connection-notice .primary-button { padding: 8px 14px; min-height: 36px; margin-top: 8px; }
 .connection-notice-dismiss { float: right; background: transparent; color: inherit; border: 0; font-size: 1.4rem; cursor: pointer; padding: 0 4px; }
+.winning-drawing { display: block; width: min(350px, 70vw); max-height: 30vh; object-fit: contain; background: white; border-radius: 16px; margin: 12px auto; }
+.winning-drawing[hidden] { display: none; }
+.round-result .winning-drawing { width: 100%; max-width: 180px; max-height: 140px; }

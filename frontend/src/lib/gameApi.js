@@ -131,6 +131,13 @@ export function resetDashboard() {
   });
 }
 
+export function submitRoundDrawing(gameId, playerId, eventId, imageDataUrl) {
+  return apiRequest(`/games/${gameId}/round-drawing`, {
+    method: "POST",
+    body: JSON.stringify({ player_id: playerId, event_id: eventId, image_data_url: imageDataUrl }),
+  });
+}
+
 export function checkBackend(signal) {
   return apiRequest("/health", { signal, cache: "no-store" });
 }

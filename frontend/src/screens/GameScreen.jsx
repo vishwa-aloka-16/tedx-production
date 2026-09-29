@@ -298,7 +298,7 @@ export default function GameScreen({
 
   // The prompt arrives ahead of time; reveal it on the shared server clock.
   const awaitingStart = receivedGame.phase === "DRAWING" && now < receivedGame.round_started_at;
-  const game = awaitingStart ? {
+  let game = awaitingStart ? {
     ...receivedGame,
     phase: "COUNTDOWN",
     prompt: "",
@@ -306,19 +306,13 @@ export default function GameScreen({
     countdown_round: receivedGame.round_number,
   } : receivedGame;
 
-  const currentPlayer =
-    game.players.find(
-      (player) =>
-        player.id === playerId,
-    );
-
-  const opponent =
-    game.players.find(
-      (player) =>
-        player.id !== playerId,
-    );
+  const [lastDrawingGame, setLastDrawingGame] = useState(receivedGame);
+  if (receivedGame.phase === "DRAWING" && lastDrawingGame !== receivedGame) {
+    setLastDrawingGame(receivedGame);
+  }
 
   const {
+    cosmeticDrawing,
     canvasRef,
     prediction,
     predictionError,
@@ -331,10 +325,19 @@ export default function GameScreen({
     playerId,
     roundNumber: game.round_number,
     phase: game.phase,
+    roundEventId: game.round_event_id,
+    roundWinnerId: game.round_winner_id,
   });
 
+  // Keep the ordinary drawing view during the cosmetic capture window.
+  if (cosmeticDrawing && lastDrawingGame?.id === game.id && lastDrawingGame.round_number === game.round_number) {
+    game = lastDrawingGame;
+  }
+  const currentPlayer = game.players.find((player) => player.id === playerId);
+  const opponent = game.players.find((player) => player.id !== playerId);
+
   const roundSeconds =
-    game.round_seconds || 90;
+    game.round_seconds || 30;
 
   const secondsLeft =
     game.round_deadline
@@ -362,7 +365,7 @@ export default function GameScreen({
     prediction?.consecutive_hits || 0;
 
   const requiredMatches =
-    game.judge?.required_hits || 3;
+    game.judge?.required_hits || 1;
 
   return (
     <main className="game-page">
@@ -563,7 +566,7 @@ export default function GameScreen({
 
             <p>
               {requiredMatches} consecutive correct {requiredMatches === 1 ? "guess" : "guesses"}
-              {" at "}{Math.round((game.judge?.confidence_threshold ?? 0.4) * 100)}%
+              {" at "}{Math.round((game.judge?.confidence_threshold ?? 0.3) * 100)}%
               {" confidence or higher. Late-round fallback may award a correct guess sooner."}
             </p>
           </div>

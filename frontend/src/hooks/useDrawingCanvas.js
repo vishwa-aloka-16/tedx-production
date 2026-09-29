@@ -7,6 +7,7 @@ import {
 
 import {
   submitDrawing,
+  submitRoundDrawing,
 } from "../lib/gameApi";
 
 const PREDICTION_DELAY_MS = 350;
@@ -58,11 +59,16 @@ export default function useDrawingCanvas({
   playerId,
   roundNumber,
   phase,
+  roundEventId,
+  roundWinnerId,
 }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
   const activePointerRef = useRef(null);
   const enabledRef = useRef(false);
+  const predictionEnabledRef = useRef(false);
+  const [capturedEventId, setCapturedEventId] = useState(null);
+  const cosmeticDrawing = phase === "ROUND_RESULT" && Boolean(roundWinnerId && roundEventId) && capturedEventId !== roundEventId;
 
   const predictionTimerRef = useRef(null);
 
@@ -85,7 +91,7 @@ export default function useDrawingCanvas({
   ] = useState("");
 
   const drawingEnabled =
-    phase === "DRAWING";
+    phase === "DRAWING" || cosmeticDrawing;
 
   useEffect(() => {
     enabledRef.current =
@@ -104,6 +110,32 @@ export default function useDrawingCanvas({
   }, [drawingEnabled]);
 
   useEffect(() => {
+    predictionEnabledRef.current = phase === "DRAWING";
+    if (phase !== "DRAWING") {
+      drawingVersionRef.current += 1;
+      window.clearTimeout(predictionTimerRef.current);
+      predictionTimerRef.current = null;
+    }
+  }, [phase]);
+
+  useEffect(() => {
+    if (!cosmeticDrawing) return undefined;
+    const timer = window.setTimeout(() => {
+      enabledRef.current = false;
+      drawingRef.current = false;
+      activePointerRef.current = null;
+      const image = playerId === roundWinnerId && hasDrawingRef.current ? canvasRef.current?.toDataURL("image/png") : null;
+      setCapturedEventId(roundEventId);
+      if (image) {
+        // This endpoint only attaches display media; it never runs inference.
+        submitRoundDrawing(gameId, playerId, roundEventId, image).catch(() => {});
+      }
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [cosmeticDrawing, gameId, playerId, roundEventId, roundWinnerId]);
+
+  useEffect(() => {
+    if (phase === "ROUND_RESULT") return;
     drawingVersionRef.current += 1;
     drawingRef.current = false;
     activePointerRef.current = null;
@@ -128,6 +160,7 @@ export default function useDrawingCanvas({
   useEffect(() => {
     return () => {
       enabledRef.current = false;
+      predictionEnabledRef.current = false;
       drawingVersionRef.current += 1;
       window.clearTimeout(
         predictionTimerRef.current,
@@ -141,7 +174,7 @@ export default function useDrawingCanvas({
         predictionRunningRef.current ||
         !canvasRef.current ||
         !hasDrawingRef.current ||
-        !enabledRef.current
+        !predictionEnabledRef.current
       ) {
         return;
       }
@@ -172,7 +205,7 @@ export default function useDrawingCanvas({
           setPrediction(result);
           setPredictionError("");
           if (result.accepted || result.round_finished) {
-            enabledRef.current = false;
+            predictionEnabledRef.current = false;
           } else {
             retry = true;
             retryDelay = Math.max(
@@ -188,7 +221,7 @@ export default function useDrawingCanvas({
             .includes("not accepting");
 
         if (requestVersion === drawingVersionRef.current && roundFinished) {
-          enabledRef.current = false;
+          predictionEnabledRef.current = false;
         }
 
         if (
@@ -207,7 +240,7 @@ export default function useDrawingCanvas({
           false;
 
         if (
-          enabledRef.current &&
+          predictionEnabledRef.current &&
           hasDrawingRef.current &&
           (drawingChangedRef.current ||
             (retry && requestVersion === drawingVersionRef.current))
@@ -231,6 +264,8 @@ export default function useDrawingCanvas({
       drawingChangedRef.current = true;
       hasDrawingRef.current = true;
       cachedImageRef.current = null;
+
+      if (!predictionEnabledRef.current) return;
 
       if (
         predictionRunningRef.current ||
@@ -353,6 +388,7 @@ export default function useDrawingCanvas({
   }
 
   return {
+    cosmeticDrawing,
     canvasRef,
     prediction,
     predictionError,

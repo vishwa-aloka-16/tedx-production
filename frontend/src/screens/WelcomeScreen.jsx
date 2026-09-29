@@ -3,7 +3,7 @@ import "./WelcomeScreen.css";
 
 const steps = [
   ["Get your prompt", "You and your opponent get the same secret object."],
-  ["Make your mark", "Bring it to life on the canvas. You have up to 90 seconds."],
+  ["Make your mark", "Bring it to life on the canvas. You have up to 30 seconds."],
   ["Let the AI guess", "Watch the AI try to recognize your drawing as you go."],
   ["Beat your opponent", "The first drawing the AI recognizes correctly wins."],
 ];
@@ -36,7 +36,7 @@ export default function WelcomeScreen({ onStart }) {
           <dl className="welcome-stats" aria-label="Game at a glance">
             <div><dt>Players</dt><dd>02</dd></div>
             <div><dt>Rounds</dt><dd>06</dd></div>
-            <div><dt>Seconds per round</dt><dd>90</dd></div>
+            <div><dt>Seconds per round</dt><dd>30</dd></div>
           </dl>
         </div>
         <aside className="how-to-play-card" aria-labelledby="how-to-title">

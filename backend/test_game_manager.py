@@ -1,4 +1,8 @@
 import asyncio
+import base64
+import io
+import json
+from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 from fastapi import HTTPException
@@ -7,6 +11,8 @@ from backend.difficulty import default_difficulties
 from backend.game_manager import Game, GameManager, Player
 from backend.schemas import AdminSettingsRequest
 from pydantic import ValidationError
+from PIL import Image
+from backend.round_drawing import thumbnail_bytes
 
 
 class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
@@ -29,7 +35,9 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.choice.stop)
 
     def create_game(self, classes):
-        game = Game(id="test-game", classes=classes)
+        # Existing gameplay scenarios explicitly retain their original settings.
+        game = Game(id="test-game", classes=classes, round_seconds=90,
+                    required_hits=3, confidence_threshold=0.4)
         game.players = {
             "one": Player(id="one", name="One", seat=1),
             "two": Player(id="two", name="Two", seat=2),
@@ -344,6 +352,100 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(game.round_started_at, 103.0)
         self.assertEqual(game.round_deadline, 193.0)
         self.assertTrue(game.prompt)
+
+    async def test_final_drawing_never_changes_winner_score_or_round_state(self):
+        game = self.create_game(self.manager.classes)
+        game.phase = "DRAWING"
+        game.round_number = 1
+        game.prompt = "cat"
+        self.manager.advance_after_result = AsyncMock()
+        await self.manager.finish_round(game, game.players["one"])
+        event_id = game.round_winners[-1]["event_id"]
+        before = (game.phase, game.round_winner_id, game.round_points,
+                  game.players["one"].score, game.transition_token)
+        await self.manager.attach_round_drawing(game.id, "one", event_id, b"thumbnail")
+        self.assertEqual(before, (game.phase, game.round_winner_id, game.round_points,
+                                 game.players["one"].score, game.transition_token))
+        self.assertEqual(self.manager.round_drawings[event_id], b"thumbnail")
+        with patch("backend.game_manager.time.time", return_value=game.round_winners[-1]["reveal_after"]):
+            snapshot = self.manager.leaderboard(rows=[])
+        self.assertEqual(snapshot["games"][0]["round_winners"][0]["drawing_url"], f"/round-drawings/{event_id}")
+        self.manager.record_leaderboard.assert_not_called()
+        await self.manager.attach_round_drawing(game.id, "one", event_id, b"replacement")
+        self.assertEqual(self.manager.round_drawings[event_id], b"thumbnail")
+
+    async def test_only_recorded_winner_can_attach_matching_round(self):
+        game = self.create_game(self.manager.classes)
+        game.round_winners = [{"event_id": "event", "winner_id": "one"}]
+        for player, event, status in [("two", "event", 403), ("one", "old-event", 409)]:
+            with self.assertRaises(HTTPException) as result:
+                await self.manager.attach_round_drawing(game.id, player, event, b"data")
+            self.assertEqual(result.exception.status_code, status)
+        self.assertFalse(self.manager.round_drawings)
+
+    async def test_leaderboard_waits_for_cosmetic_window_and_final_drawing(self):
+        game = self.create_game(self.manager.classes)
+        game.phase = "DRAWING"
+        game.round_number = 1
+        self.manager.advance_after_result = AsyncMock()
+        with patch("backend.game_manager.time.time", return_value=100.0):
+            await self.manager.finish_round(game, game.players["one"])
+            self.assertGreater(game.players["one"].score, 0)
+            self.assertEqual(self.manager.leaderboard(rows=[])["games"][0]["round_winners"], [])
+        event_id = game.round_winners[-1]["event_id"]
+        with patch("backend.game_manager.time.time", return_value=102.0):
+            self.assertEqual(self.manager.leaderboard(rows=[])["games"][0]["round_winners"], [])
+            await self.manager.attach_round_drawing(game.id, "one", event_id, b"final drawing")
+            result = self.manager.leaderboard(rows=[])["games"][0]["round_winners"][0]
+            self.assertEqual(result["winner"], "One")
+            self.assertEqual(result["drawing_url"], f"/round-drawings/{event_id}")
+
+    def test_early_upload_cannot_reveal_winner_before_two_seconds(self):
+        result = {"winner": "One", "reveal_after": 102, "drawing_deadline": 105, "drawing_received": True}
+        self.assertFalse(self.manager.round_result_visible(result, 101.99))
+        self.assertTrue(self.manager.round_result_visible(result, 102))
+
+    def test_missing_drawing_reveals_result_after_upload_grace(self):
+        result = {"winner": "One", "reveal_after": 102, "drawing_deadline": 105}
+        self.assertFalse(self.manager.round_result_visible(result, 104.99))
+        self.assertTrue(self.manager.round_result_visible(result, 105))
+
+    async def test_cosmetic_image_cache_is_bounded(self):
+        game = self.create_game(self.manager.classes)
+        for index in range(65):
+            event_id = f"event-{index}"
+            game.round_winners = [{"event_id": event_id, "winner_id": "one"}]
+            await self.manager.attach_round_drawing(game.id, "one", event_id, b"data")
+        self.assertEqual(len(self.manager.round_drawings), 64)
+        self.assertNotIn("event-0", self.manager.round_drawings)
+
+    def test_thumbnail_validation_and_resize(self):
+        image = Image.new("RGB", (700, 560), "white")
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        result = thumbnail_bytes("data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode())
+        with Image.open(io.BytesIO(result)) as thumbnail:
+            self.assertEqual(thumbnail.size, (350, 280))
+        with self.assertRaises(HTTPException):
+            thumbnail_bytes("data:image/png;base64,invalid")
+
+    async def test_requested_production_defaults_and_excluded_prompts(self):
+        metadata = json.loads((Path(__file__).parent / "models" / "metadata_keras.json").read_text())
+        classes = metadata["classes"]["class_names"]
+        with patch.object(GameManager, "initialize_leaderboard"):
+            manager = GameManager(["cat"], {"pytorch_20": ["cat"], "tensorflow_50": classes})
+        state = manager.admin_state()
+        self.assertEqual(state["model_key"], "tensorflow_50")
+        self.assertEqual(state["round_seconds"], 30)
+        self.assertEqual(state["required_hits"], 1)
+        self.assertEqual(state["confidence_threshold"], 0.3)
+        self.assertEqual({item["name"] for item in state["classes"] if not item["enabled"]},
+                         {"helicopter", "bus", "broccoli"})
+        game, _ = await manager.join_matchmaking("One")
+        self.assertEqual(len(game.classes), 47)
+        self.assertEqual((game.round_seconds, game.required_hits, game.confidence_threshold), (30, 1, 0.3))
+        for level in ("easy", "medium", "hard"):
+            self.assertGreaterEqual(sum(game.class_difficulties[name] == level for name in game.classes), 2)
 
 
 if __name__ == "__main__":
