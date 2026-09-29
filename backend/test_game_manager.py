@@ -5,6 +5,8 @@ from fastapi import HTTPException
 from backend.difficulty import default_difficulties
 
 from backend.game_manager import Game, GameManager, Player
+from backend.schemas import AdminSettingsRequest
+from pydantic import ValidationError
 
 
 class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
@@ -201,12 +203,20 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.manager.classes_by_model = {"test": classes}
         original = default_difficulties(classes)
         self.manager.difficulties_by_model = {"test": original.copy()}
-        self.manager.update_admin_settings("test", 90, [], original)
+        state = self.manager.update_admin_settings("test", 90, [], original,
+                                                   required_hits=2, confidence_threshold=0.75)
+        self.assertEqual(state["required_hits"], 2)
+        self.assertEqual(state["confidence_threshold"], 0.75)
         game, _ = await self.manager.join_matchmaking("One")
         changed = {**original, "apple": "hard", "guitar": "easy"}
         self.manager.update_admin_settings("test", 60, [], changed)
         self.assertEqual(game.class_difficulties, original)
         self.assertEqual(game.round_seconds, 90)
+        self.assertEqual(game.required_hits, 2)
+        self.assertEqual(game.confidence_threshold, 0.75)
+        judge = self.manager.public_state(game)["judge"]
+        self.assertEqual(judge["required_hits"], 2)
+        self.assertEqual(judge["confidence_threshold"], 0.75)
         invalid_cases = [
             ([], {**changed, "cat": "impossible"}),
             ([], {"apple": "easy"}),
@@ -220,6 +230,65 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
                     self.manager.update_admin_settings("test", 100, excluded, difficulties)
                 self.assertEqual(self.manager.difficulties_by_model["test"], changed)
                 self.assertEqual(self.manager.round_seconds, 60)
+
+    async def test_configured_streak_and_confidence_control_acceptance(self):
+        game = self.create_game(self.manager.classes)
+        game.phase = "DRAWING"
+        game.round_number = 1
+        game.round_started_at = 100.0
+        game.prompt = "cat"
+        game.required_hits = 2
+        game.confidence_threshold = 0.75
+        self.manager.finish_round = AsyncMock()
+        with patch("backend.game_manager.time.time", return_value=105.0):
+            # Low-confidence and wrong guesses each reset a qualifying streak.
+            for guess, confidence, expected_hits in [
+                ("cat", 0.75, 1), ("cat", 0.74, 0),
+                ("cat", 0.9, 1), ("dog", 0.99, 0), ("cat", 0.75, 1),
+            ]:
+                response = await self.manager.record_prediction(
+                    game.id, "one", {"prediction": guess, "confidence": confidence})
+                self.assertFalse(response["accepted"])
+                self.assertEqual(response["consecutive_hits"], expected_hits)
+                self.assertEqual(response["required_hits"], 2)
+            response = await self.manager.record_prediction(
+                game.id, "one", {"prediction": "cat", "confidence": 0.75})
+            self.assertTrue(response["accepted"])
+        self.manager.finish_round.assert_awaited_once_with(game, winner=game.players["one"])
+
+    async def test_single_guess_can_pass_at_configured_confidence(self):
+        game = self.create_game(self.manager.classes)
+        game.phase = "DRAWING"
+        game.round_number = 1
+        game.round_started_at = 100.0
+        game.prompt = "cat"
+        game.required_hits = 1
+        game.confidence_threshold = 0.2
+        self.manager.finish_round = AsyncMock()
+        with patch("backend.game_manager.time.time", return_value=105.0):
+            response = await self.manager.record_prediction(
+                game.id, "one", {"prediction": "cat", "confidence": 0.2})
+        self.assertTrue(response["accepted"])
+
+    def test_judge_settings_reject_invalid_values(self):
+        for extra in ({"required_hits": 0}, {"required_hits": 11},
+                      {"required_hits": 1.5}, {"required_hits": True},
+                      {"confidence_threshold": 0}, {"confidence_threshold": 1.01},
+                      {"confidence_threshold": float("nan")}):
+            with self.subTest(extra=extra):
+                with self.assertRaises(ValidationError):
+                    AdminSettingsRequest(model_key="test", round_seconds=90, **extra)
+                with self.assertRaises(HTTPException):
+                    self.manager.update_admin_settings("test", 90, [], **extra)
+
+    def test_final_round_wait_reports_custom_hit_count(self):
+        game = self.create_game(self.manager.classes)
+        game.phase = "DRAWING"
+        game.round_number = game.max_rounds
+        game.round_started_at = 100.0
+        game.required_hits = 7
+        with patch("backend.game_manager.time.time", return_value=101.0):
+            self.assertEqual(self.manager.prediction_wait_response(game)["required_hits"], 7)
 
 
 if __name__ == "__main__":

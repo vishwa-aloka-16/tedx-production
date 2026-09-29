@@ -56,6 +56,8 @@ class Player:
 @dataclass
 class Game:
     id: str
+    required_hits: int = REQUIRED_CONSECUTIVE_HITS
+    confidence_threshold: float = CONFIDENCE_THRESHOLD
     model_key: str = "pytorch_20"
     classes: list[str] = field(default_factory=list)
     class_difficulties: dict[str, str] = field(default_factory=dict)
@@ -123,6 +125,8 @@ class GameManager:
         }
         self.model_key = next(iter(self.classes_by_model))
         self.round_seconds = ROUND_SECONDS
+        self.required_hits = REQUIRED_CONSECUTIVE_HITS
+        self.confidence_threshold = CONFIDENCE_THRESHOLD
         self.excluded_classes: set[str] = set()
         self.difficulties_by_model = {
             key: default_difficulties(classes)
@@ -291,6 +295,8 @@ class GameManager:
         return {
             "model_key": self.model_key,
             "round_seconds": self.round_seconds,
+            "required_hits": self.required_hits,
+            "confidence_threshold": self.confidence_threshold,
             "classes": [
                 {
                     "name": class_name,
@@ -307,7 +313,13 @@ class GameManager:
         round_seconds: int,
         excluded_classes: list[str],
         class_difficulties: dict[str, str] | None = None,
+        required_hits: int = REQUIRED_CONSECUTIVE_HITS,
+        confidence_threshold: float = CONFIDENCE_THRESHOLD,
     ) -> dict[str, Any]:
+        if type(required_hits) is not int or not 1 <= required_hits <= 10:
+            raise HTTPException(status_code=400, detail="Required stable guesses must be an integer from 1 to 10.")
+        if not 0.01 <= confidence_threshold <= 1.0:
+            raise HTTPException(status_code=400, detail="Pass confidence must be between 1% and 100%.")
         classes = self.classes_by_model.get(model_key)
 
         if classes is None:
@@ -349,6 +361,8 @@ class GameManager:
         self.difficulties_by_model[model_key] = difficulties
         self.model_key = model_key
         self.round_seconds = round_seconds
+        self.required_hits = required_hits
+        self.confidence_threshold = confidence_threshold
         self.excluded_classes = set(excluded_classes)
         return self.admin_state()
 
@@ -507,11 +521,11 @@ class GameManager:
 
             "judge": {
                 "confidence_threshold": (
-                    CONFIDENCE_THRESHOLD
+                    game.confidence_threshold
                 ),
 
                 "required_hits": (
-                    REQUIRED_CONSECUTIVE_HITS
+                    game.required_hits
                 ),
 
                 "minimum_seconds": (
@@ -683,6 +697,8 @@ class GameManager:
                     if item not in self.excluded_classes
                 ],
                 round_seconds=self.round_seconds,
+                required_hits=self.required_hits,
+                confidence_threshold=self.confidence_threshold,
                 class_difficulties=self.difficulties_by_model[model_key].copy(),
             )
 
@@ -969,7 +985,7 @@ class GameManager:
             "accepted": False,
             "round_finished": False,
             "consecutive_hits": 0,
-            "required_hits": REQUIRED_CONSECUTIVE_HITS,
+            "required_hits": game.required_hits,
             "retry_after_seconds": remaining,
         }
 
@@ -998,7 +1014,7 @@ class GameManager:
                     "round_finished": True,
                     "consecutive_hits": 0,
                     "required_hits": (
-                        REQUIRED_CONSECUTIVE_HITS
+                        game.required_hits
                     ),
                 }
 
@@ -1024,7 +1040,7 @@ class GameManager:
                 player.last_guess
                 == game.prompt
                 and player.confidence
-                >= CONFIDENCE_THRESHOLD
+                >= game.confidence_threshold
             )
 
             if prediction_is_correct:
@@ -1046,9 +1062,9 @@ class GameManager:
                 elapsed_seconds
                 >= MINIMUM_JUDGE_SECONDS
                 and player.predictions_seen
-                >= REQUIRED_CONSECUTIVE_HITS
+                >= game.required_hits
                 and player.consecutive_hits
-                >= REQUIRED_CONSECUTIVE_HITS
+                >= game.required_hits
             )
 
             winner = player if prediction_accepted else None
@@ -1069,7 +1085,7 @@ class GameManager:
                 ),
 
                 "required_hits": (
-                    REQUIRED_CONSECUTIVE_HITS
+                    game.required_hits
                 ),
             }
 

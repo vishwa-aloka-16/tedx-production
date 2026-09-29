@@ -551,8 +551,9 @@ export default function GameScreen({
             </div>
 
             <p>
-              Three confident predictions are
-              required before a win is awarded.
+              {requiredMatches} consecutive correct {requiredMatches === 1 ? "guess" : "guesses"}
+              {" at "}{Math.round((game.judge?.confidence_threshold ?? 0.4) * 100)}%
+              {" confidence or higher. Late-round fallback may award a correct guess sooner."}
             </p>
           </div>
 

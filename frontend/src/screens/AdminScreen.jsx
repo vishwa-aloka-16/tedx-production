@@ -11,6 +11,8 @@ export default function AdminScreen() {
   const [models, setModels] = useState([]);
   const [settings, setSettings] = useState(null);
   const [roundSeconds, setRoundSeconds] = useState(90);
+  const [requiredHits, setRequiredHits] = useState(3);
+  const [confidencePercent, setConfidencePercent] = useState(40);
   const [excludedClasses, setExcludedClasses] = useState([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -22,6 +24,8 @@ export default function AdminScreen() {
         setModels(result.models || []);
         setSettings(result.settings);
         setRoundSeconds(result.settings.round_seconds);
+        setRequiredHits(result.settings.required_hits ?? 3);
+        setConfidencePercent(Math.round((result.settings.confidence_threshold ?? 0.4) * 100));
         setExcludedClasses(
           result.settings.classes
             .filter((item) => !item.enabled)
@@ -65,6 +69,8 @@ export default function AdminScreen() {
       const result = await updateAdminSettings({
         model_key: settings.model_key,
         round_seconds: Number(roundSeconds),
+        required_hits: Number(requiredHits),
+        confidence_threshold: Number(confidencePercent) / 100,
         excluded_classes: excludedClasses,
         class_difficulties: Object.fromEntries(settings.classes.map((item) => [item.name, item.difficulty])),
       });
@@ -149,6 +155,25 @@ export default function AdminScreen() {
                 onChange={(event) => setRoundSeconds(event.target.value)}
               />
             </label>
+
+            <label className="form-field">
+              <span>REQUIRED STABLE GUESSES</span>
+              <input type="number" min="1" max="10" step="1" required
+                value={requiredHits} disabled={busy}
+                onChange={(event) => { setRequiredHits(event.target.value); setStatus(""); }} />
+            </label>
+            <label className="form-field">
+              <span>PASS CONFIDENCE (%)</span>
+              <input type="number" min="1" max="100" step="1" required
+                value={confidencePercent} disabled={busy}
+                onChange={(event) => { setConfidencePercent(event.target.value); setStatus(""); }} />
+            </label>
+            <p className="class-picker-note">
+              Each consecutive guess must match the prompt and meet this confidence.
+              A wrong or lower-confidence guess resets the streak. In the last 20% of
+              a round, the existing fallback can award the highest-confidence correct
+              guess without meeting these requirements.
+            </p>
 
             <fieldset className="class-picker">
               <legend>PROMPT DIFFICULTY</legend>
