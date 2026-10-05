@@ -128,6 +128,7 @@ def update_admin_settings(
             round_seconds=request.round_seconds,
             excluded_classes=request.excluded_classes,
             class_difficulties=request.class_difficulties,
+            prediction_gap_seconds=request.prediction_gap_seconds,
             required_hits=request.required_hits,
             confidence_threshold=request.confidence_threshold,
         ),

@@ -10,8 +10,9 @@ import {
 export default function AdminScreen() {
   const [models, setModels] = useState([]);
   const [settings, setSettings] = useState(null);
-  const [roundSeconds, setRoundSeconds] = useState(30);
-  const [requiredHits, setRequiredHits] = useState(1);
+  const [roundSeconds, setRoundSeconds] = useState(40);
+  const [predictionGap, setPredictionGap] = useState(0.2);
+  const [requiredHits, setRequiredHits] = useState(2);
   const [confidencePercent, setConfidencePercent] = useState(30);
   const [excludedClasses, setExcludedClasses] = useState([]);
   const [status, setStatus] = useState("");
@@ -24,7 +25,8 @@ export default function AdminScreen() {
         setModels(result.models || []);
         setSettings(result.settings);
         setRoundSeconds(result.settings.round_seconds);
-        setRequiredHits(result.settings.required_hits ?? 1);
+        setPredictionGap(result.settings.prediction_gap_seconds ?? 0.2);
+        setRequiredHits(result.settings.required_hits ?? 2);
         setConfidencePercent(Math.round((result.settings.confidence_threshold ?? 0.3) * 100));
         setExcludedClasses(
           result.settings.classes
@@ -69,6 +71,7 @@ export default function AdminScreen() {
       const result = await updateAdminSettings({
         model_key: settings.model_key,
         round_seconds: Number(roundSeconds),
+        prediction_gap_seconds: Number(predictionGap),
         required_hits: Number(requiredHits),
         confidence_threshold: Number(confidencePercent) / 100,
         excluded_classes: excludedClasses,
@@ -161,6 +164,13 @@ export default function AdminScreen() {
               <input type="number" min="1" max="10" step="1" required
                 value={requiredHits} disabled={busy}
                 onChange={(event) => { setRequiredHits(event.target.value); setStatus(""); }} />
+            </label>
+            <label className="form-field">
+              <span>GAP BETWEEN GUESSES (SECONDS)</span>
+              <input type="number" min="0.1" max="5" step="0.1" required
+                value={predictionGap} disabled={busy}
+                onChange={(event) => { setPredictionGap(event.target.value); setStatus(""); }} />
+              <small>Wait after each prediction response before the next guess. Default: 0.2 seconds.</small>
             </label>
             <label className="form-field">
               <span>PASS CONFIDENCE (%)</span>

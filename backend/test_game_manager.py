@@ -95,20 +95,20 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(game.used_prompts)
         self.assertFalse(game.round_winners)
 
-    async def test_final_round_waits_three_seconds_without_counting_predictions(self):
+    async def test_final_round_waits_three_point_five_seconds_without_counting_predictions(self):
         game = self.create_game(self.manager.classes)
         game.phase = "DRAWING"
         game.round_number = game.max_rounds
         game.round_started_at = 100.0
         game.prompt = "cat"
-        with patch("backend.game_manager.time.time", return_value=102.999):
+        with patch("backend.game_manager.time.time", return_value=103.499):
             response = await self.manager.record_prediction(
                 game.id, "one", {"prediction": "cat", "confidence": 1.0})
             self.assertFalse(response["accepted"])
             self.assertGreater(response["retry_after_seconds"], 0)
             self.assertEqual(game.players["one"].predictions_seen, 0)
             self.assertEqual(game.players["one"].consecutive_hits, 0)
-        with patch("backend.game_manager.time.time", return_value=103.0):
+        with patch("backend.game_manager.time.time", return_value=103.5):
             self.assertIsNone(self.manager.prediction_wait_response(game))
             await self.manager.record_prediction(
                 game.id, "one", {"prediction": "cat", "confidence": 1.0})
@@ -206,13 +206,18 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
                              ["easy", "easy", "medium", "medium", "hard", "hard"])
             await self.manager.restart_game(game.id, "one")
 
+    def test_prediction_gap_defaults_to_point_two_seconds(self):
+        self.assertEqual(self.manager.admin_state()["prediction_gap_seconds"], 0.2)
+        self.assertEqual(Game(id="default").prediction_gap_seconds, 0.2)
+
     async def test_admin_validation_and_new_game_snapshot(self):
         classes = ["apple", "banana", "cat", "car", "bicycle", "guitar"]
         self.manager.classes_by_model = {"test": classes}
         original = default_difficulties(classes)
         self.manager.difficulties_by_model = {"test": original.copy()}
         state = self.manager.update_admin_settings("test", 90, [], original,
-                                                   required_hits=2, confidence_threshold=0.75)
+                                                   required_hits=2, confidence_threshold=0.75, prediction_gap_seconds=0.8)
+        self.assertEqual(state["prediction_gap_seconds"], 0.8)
         self.assertEqual(state["required_hits"], 2)
         self.assertEqual(state["confidence_threshold"], 0.75)
         game, _ = await self.manager.join_matchmaking("One")
@@ -220,9 +225,11 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.manager.update_admin_settings("test", 60, [], changed)
         self.assertEqual(game.class_difficulties, original)
         self.assertEqual(game.round_seconds, 90)
+        self.assertEqual(game.prediction_gap_seconds, 0.8)
         self.assertEqual(game.required_hits, 2)
         self.assertEqual(game.confidence_threshold, 0.75)
         judge = self.manager.public_state(game)["judge"]
+        self.assertEqual(judge["prediction_gap_seconds"], 0.8)
         self.assertEqual(judge["required_hits"], 2)
         self.assertEqual(judge["confidence_threshold"], 0.75)
         invalid_cases = [
@@ -279,7 +286,8 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(response["accepted"])
 
     def test_judge_settings_reject_invalid_values(self):
-        for extra in ({"required_hits": 0}, {"required_hits": 11},
+        for extra in ({"prediction_gap_seconds": 0.09}, {"prediction_gap_seconds": 5.1},
+                      {"prediction_gap_seconds": float("nan")}, {"required_hits": 0}, {"required_hits": 11},
                       {"required_hits": 1.5}, {"required_hits": True},
                       {"confidence_threshold": 0}, {"confidence_threshold": 1.01},
                       {"confidence_threshold": float("nan")}):
@@ -393,7 +401,7 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(game.players["one"].score, 0)
             self.assertEqual(self.manager.leaderboard(rows=[])["games"][0]["round_winners"], [])
         event_id = game.round_winners[-1]["event_id"]
-        with patch("backend.game_manager.time.time", return_value=102.0):
+        with patch("backend.game_manager.time.time", return_value=104.0):
             self.assertEqual(self.manager.leaderboard(rows=[])["games"][0]["round_winners"], [])
             await self.manager.attach_round_drawing(game.id, "one", event_id, b"final drawing")
             result = self.manager.leaderboard(rows=[])["games"][0]["round_winners"][0]
@@ -436,16 +444,35 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
             manager = GameManager(["cat"], {"pytorch_20": ["cat"], "tensorflow_50": classes})
         state = manager.admin_state()
         self.assertEqual(state["model_key"], "tensorflow_50")
-        self.assertEqual(state["round_seconds"], 30)
-        self.assertEqual(state["required_hits"], 1)
+        self.assertEqual(state["round_seconds"], 40)
+        self.assertEqual(state["prediction_gap_seconds"], 0.2)
+        self.assertEqual(state["required_hits"], 2)
         self.assertEqual(state["confidence_threshold"], 0.3)
         self.assertEqual({item["name"] for item in state["classes"] if not item["enabled"]},
-                         {"helicopter", "bus", "broccoli"})
+                         {"helicopter", "bus", "broccoli", "giraffe"})
         game, _ = await manager.join_matchmaking("One")
-        self.assertEqual(len(game.classes), 47)
-        self.assertEqual((game.round_seconds, game.required_hits, game.confidence_threshold), (30, 1, 0.3))
+        self.assertEqual(len(game.classes), 46)
+        self.assertEqual((game.round_seconds, game.required_hits, game.confidence_threshold), (40, 2, 0.3))
         for level in ("easy", "medium", "hard"):
             self.assertGreaterEqual(sum(game.class_difficulties[name] == level for name in game.classes), 2)
+
+    async def test_leaderboard_round_intro_event_survives_countdown_transition(self):
+        game = self.create_game(self.manager.classes)
+        updates = asyncio.Queue(maxsize=1)
+        self.manager.leaderboard_subscribers.add(updates)
+        self.manager.begin_round_after_countdown = AsyncMock()
+        await GameManager.start_countdown(self.manager, game)
+        event = self.manager.leaderboard(rows=[])["games"][0]["round_start"]
+        self.assertFalse(updates.empty())
+        self.assertEqual(event["round"], 1)
+        game.phase = "DRAWING"
+        game.round_number = 1
+        self.assertEqual(self.manager.leaderboard(rows=[])["games"][0]["round_start"], event)
+        await GameManager.start_countdown(self.manager, game)
+        next_event = self.manager.leaderboard(rows=[])["games"][0]["round_start"]
+        self.assertEqual(next_event["round"], 2)
+        self.assertNotEqual(next_event["event_id"], event["event_id"])
+
 
 
 if __name__ == "__main__":

@@ -21,19 +21,20 @@ from fastapi import (
 
 MAX_PLAYERS = 2
 MAX_ROUNDS = 6
-ROUND_SECONDS = 30
+ROUND_SECONDS = 40
 COUNTDOWN_SECONDS = 3
 PROMPT_DELIVERY_LEAD_SECONDS = 0.75
 ROUND_RESULT_SECONDS = 6
-COSMETIC_DRAW_SECONDS = 2
+COSMETIC_DRAW_SECONDS = 4
 DRAWING_UPLOAD_GRACE_SECONDS = 3
 
+PREDICTION_GAP_SECONDS = 0.2
 CONFIDENCE_THRESHOLD = 0.3
-REQUIRED_CONSECUTIVE_HITS = 1
+REQUIRED_CONSECUTIVE_HITS = 2
 DEFAULT_MODEL_KEY = "tensorflow_50"
-DEFAULT_EXCLUDED_CLASSES = {"helicopter", "bus", "broccoli"}
-MINIMUM_JUDGE_SECONDS = 1.5
-FINAL_ROUND_DRAW_SECONDS = 3.0
+DEFAULT_EXCLUDED_CLASSES = {"helicopter", "bus", "broccoli","giraffe"}
+MINIMUM_JUDGE_SECONDS = 3.5
+FINAL_ROUND_DRAW_SECONDS = 3.5
 LATE_ROUND_FRACTION = 0.8
 
 
@@ -62,7 +63,9 @@ class Player:
 @dataclass
 class Game:
     id: str
+    round_start_event_id: str | None = None
     required_hits: int = REQUIRED_CONSECUTIVE_HITS
+    prediction_gap_seconds: float = PREDICTION_GAP_SECONDS
     confidence_threshold: float = CONFIDENCE_THRESHOLD
     model_key: str = DEFAULT_MODEL_KEY
     classes: list[str] = field(default_factory=list)
@@ -131,6 +134,7 @@ class GameManager:
         }
         self.model_key = DEFAULT_MODEL_KEY if DEFAULT_MODEL_KEY in self.classes_by_model else next(iter(self.classes_by_model))
         self.round_seconds = ROUND_SECONDS
+        self.prediction_gap_seconds = PREDICTION_GAP_SECONDS
         self.required_hits = REQUIRED_CONSECUTIVE_HITS
         self.confidence_threshold = CONFIDENCE_THRESHOLD
         self.excluded_classes: set[str] = DEFAULT_EXCLUDED_CLASSES.intersection(self.classes_by_model[self.model_key])
@@ -245,6 +249,10 @@ class GameManager:
                     else "completed"
                 ),
                 "phase": game.phase,
+                "round_start": {
+                    "event_id": game.round_start_event_id,
+                    "round": game.round_number + 1 if game.phase == "COUNTDOWN" else game.round_number,
+                } if game.round_start_event_id and game.phase in ("COUNTDOWN", "DRAWING") else None,
                 "players": [
                     player.name
                     for player in sorted(
@@ -327,6 +335,7 @@ class GameManager:
         return {
             "model_key": self.model_key,
             "round_seconds": self.round_seconds,
+            "prediction_gap_seconds": self.prediction_gap_seconds,
             "required_hits": self.required_hits,
             "confidence_threshold": self.confidence_threshold,
             "classes": [
@@ -347,7 +356,10 @@ class GameManager:
         class_difficulties: dict[str, str] | None = None,
         required_hits: int = REQUIRED_CONSECUTIVE_HITS,
         confidence_threshold: float = CONFIDENCE_THRESHOLD,
+        prediction_gap_seconds: float = PREDICTION_GAP_SECONDS,
     ) -> dict[str, Any]:
+        if not 0.1 <= prediction_gap_seconds <= 5.0:
+            raise HTTPException(status_code=400, detail="Guess gap must be between 0.1 and 5 seconds.")
         if type(required_hits) is not int or not 1 <= required_hits <= 10:
             raise HTTPException(status_code=400, detail="Required stable guesses must be an integer from 1 to 10.")
         if not 0.01 <= confidence_threshold <= 1.0:
@@ -393,6 +405,7 @@ class GameManager:
         self.difficulties_by_model[model_key] = difficulties
         self.model_key = model_key
         self.round_seconds = round_seconds
+        self.prediction_gap_seconds = prediction_gap_seconds
         self.required_hits = required_hits
         self.confidence_threshold = confidence_threshold
         self.excluded_classes = set(excluded_classes)
@@ -555,6 +568,7 @@ class GameManager:
             ],
 
             "judge": {
+                "prediction_gap_seconds": game.prediction_gap_seconds,
                 "confidence_threshold": (
                     game.confidence_threshold
                 ),
@@ -718,6 +732,7 @@ class GameManager:
                     if item not in self.excluded_classes
                 ],
                 round_seconds=self.round_seconds,
+                prediction_gap_seconds=self.prediction_gap_seconds,
                 required_hits=self.required_hits,
                 confidence_threshold=self.confidence_threshold,
                 class_difficulties=self.difficulties_by_model[model_key].copy(),
@@ -810,6 +825,7 @@ class GameManager:
         )
 
         game.phase = "COUNTDOWN"
+        game.round_start_event_id = secrets.token_urlsafe(12)
 
         game.countdown_ends_at = (
             time.time()
@@ -819,6 +835,9 @@ class GameManager:
         game.round_winner_id = None
         game.round_points = 0
 
+        for queue in self.leaderboard_subscribers:
+            if not queue.full():
+                queue.put_nowait(True)
         await self.broadcast(game)
 
         asyncio.create_task(

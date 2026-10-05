@@ -327,6 +327,7 @@ export default function GameScreen({
     phase: game.phase,
     roundEventId: game.round_event_id,
     roundWinnerId: game.round_winner_id,
+    predictionGapSeconds: game.judge?.prediction_gap_seconds ?? 0.2,
   });
 
   // Keep the ordinary drawing view during the cosmetic capture window.
@@ -337,7 +338,7 @@ export default function GameScreen({
   const opponent = game.players.find((player) => player.id !== playerId);
 
   const roundSeconds =
-    game.round_seconds || 30;
+    game.round_seconds || 40;
 
   const secondsLeft =
     game.round_deadline
@@ -365,7 +366,7 @@ export default function GameScreen({
     prediction?.consecutive_hits || 0;
 
   const requiredMatches =
-    game.judge?.required_hits || 1;
+    game.judge?.required_hits || 2;
 
   return (
     <main className="game-page">

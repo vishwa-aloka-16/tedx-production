@@ -9,7 +9,8 @@ class MatchmakingRequest(BaseModel):
 
 
 class AdminSettingsRequest(BaseModel):
-    required_hits: int = Field(default=1, ge=1, le=10, strict=True)
+    prediction_gap_seconds: float = Field(default=0.2, ge=0.1, le=5.0)
+    required_hits: int = Field(default=2, ge=1, le=10, strict=True)
     confidence_threshold: float = Field(default=0.3, ge=0.01, le=1.0)
     class_difficulties: dict[str, str] | None = None
     model_key: str

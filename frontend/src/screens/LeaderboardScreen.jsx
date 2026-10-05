@@ -3,30 +3,61 @@ import { useEffect, useRef, useState } from "react";
 import Brand from "../components/Brand";
 import BrandLogos from "../components/BrandLogos";
 import { API_URL, WS_URL } from "../lib/gameApi";
+import { formatPrompt } from "../lib/session";
+import { collectRoundStarts } from "../lib/roundAnnouncements";
 
 const WINNER_ANNOUNCEMENT_MS = 5000;
+const ROUND_START_ANNOUNCEMENT_MS = 2200;
 
 function WinningDrawing({ url, name, prompt }) {
   if (!url) return null;
-  return <img className="winning-drawing" src={`${API_URL}${url}`}
-    alt={`${name}'s winning drawing${prompt ? ` of ${prompt}` : ""}`}
-    onError={(event) => { event.currentTarget.hidden = true; }} />;
+  const target = prompt ? formatPrompt(prompt.replaceAll("_", " ")) : "";
+  return (
+    <figure className="winning-drawing-figure">
+      {target && <figcaption className="winning-drawing-target">Target: {target}</figcaption>}
+      <img className="winning-drawing" src={`${API_URL}${url}`}
+        alt={`${name}'s winning drawing${target ? ` of ${target}` : ""}`}
+        onError={(event) => { event.currentTarget.hidden = true; }} />
+    </figure>
+  );
 }
 
 export default function LeaderboardScreen() {
   const [players, setPlayers] = useState([]);
   const [games, setGames] = useState([]);
   const [error, setError] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement));
+  const [fullscreenError, setFullscreenError] = useState("");
   const [announcements, setAnnouncements] = useState([]);
   const winnerAnnouncement = announcements[0];
   const seenRoundsRef = useRef(new Set());
   const initializedRef = useRef(false);
+  const seenStartsRef = useRef(new Set());
+
+  useEffect(() => {
+    const updateFullscreen = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    return () => document.removeEventListener("fullscreenchange", updateFullscreen);
+  }, []);
+
+  async function toggleFullscreen() {
+    setFullscreenError("");
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      setFullscreenError("Unable to switch fullscreen. Please try again.");
+    }
+  }
 
   useEffect(() => {
     if (!winnerAnnouncement) return;
     const timer = window.setTimeout(
       () => setAnnouncements((current) => current.slice(1)),
-      WINNER_ANNOUNCEMENT_MS,
+      winnerAnnouncement.isRoundStart ? ROUND_START_ANNOUNCEMENT_MS : WINNER_ANNOUNCEMENT_MS,
     );
     return () => window.clearTimeout(timer);
   }, [winnerAnnouncement]);
@@ -40,6 +71,7 @@ export default function LeaderboardScreen() {
           if (!active) return;
           setPlayers(result.players || []);
           const nextGames = result.games || [];
+          const roundStarts = collectRoundStarts(nextGames, seenStartsRef.current, initializedRef.current);
           const completedWins = nextGames.flatMap((game) =>
             game.round_winners
               .filter((round) => round.winner)
@@ -86,6 +118,10 @@ export default function LeaderboardScreen() {
           [...completedWins, ...completedGames].forEach((round) =>
             seenRoundsRef.current.add(round.key),
           );
+          if (roundStarts.length) {
+            setAnnouncements((current) => current.some((item) => item.isGameWinner)
+              ? current : roundStarts.slice(-1));
+          }
           initializedRef.current = true;
           setGames(nextGames);
           setError("");
@@ -114,7 +150,25 @@ export default function LeaderboardScreen() {
 
   return (
     <main className="leaderboard-page">
-      {winnerAnnouncement && (
+      {winnerAnnouncement?.isRoundStart && (
+        <div className="winner-announcement round-start-announcement"
+          key={winnerAnnouncement.key} role="status"
+          style={{ "--announcement-duration": `${ROUND_START_ANNOUNCEMENT_MS}ms` }}>
+          <BrandLogos />
+          <span className="round-start-badge">ROUND {winnerAnnouncement.round} · GET READY</span>
+          <div className="round-start-matchup">
+            <div className="round-start-player round-start-player--one">
+              <span>PLAYER 1</span><strong>{winnerAnnouncement.players[0]}</strong>
+            </div>
+            <span className="round-start-versus" aria-label="versus">×</span>
+            <div className="round-start-player round-start-player--two">
+              <span>PLAYER 2</span><strong>{winnerAnnouncement.players[1]}</strong>
+            </div>
+          </div>
+          <span>Let the drawing begin</span>
+        </div>
+      )}
+      {winnerAnnouncement && !winnerAnnouncement.isRoundStart && (
         <div
           className={`winner-announcement${winnerAnnouncement.isGameWinner ? " game-winner-announcement" : ""}`}
           key={winnerAnnouncement.key}
@@ -138,9 +192,18 @@ export default function LeaderboardScreen() {
       )}
       <Brand />
       <section className="leaderboard-card">
-        <h1>Leaderboard</h1>
+        <div className="leaderboard-title-bar">
+          <h1>Leaderboard</h1>
+          <button type="button" className="leaderboard-fullscreen-button"
+            onClick={toggleFullscreen} aria-pressed={isFullscreen}
+            disabled={!document.fullscreenEnabled}
+            title={document.fullscreenEnabled ? "Press Esc to leave fullscreen" : "Fullscreen is unavailable in this browser"}>
+            {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          </button>
+        </div>
         <p>Top players and round results across the games.</p>
 
+        {fullscreenError && <div className="error-message" role="alert">{fullscreenError}</div>}
         {error && <div className="error-message">{error}</div>}
 
         {!error && !players.length && (

@@ -10,7 +10,6 @@ import {
   submitRoundDrawing,
 } from "../lib/gameApi";
 
-const PREDICTION_DELAY_MS = 350;
 
 function resetCanvas(canvas) {
   if (!canvas) return;
@@ -61,7 +60,9 @@ export default function useDrawingCanvas({
   phase,
   roundEventId,
   roundWinnerId,
+  predictionGapSeconds = 0.2,
 }) {
+  const predictionDelayMs = predictionGapSeconds * 1000;
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
   const activePointerRef = useRef(null);
@@ -185,7 +186,7 @@ export default function useDrawingCanvas({
       const requestVersion =
         drawingVersionRef.current;
       let retry = false;
-      let retryDelay = PREDICTION_DELAY_MS;
+      let retryDelay = predictionDelayMs;
 
       try {
         const imageDataUrl = cachedImageRef.current ?? canvasRef.current.toDataURL("image/png");
@@ -209,7 +210,7 @@ export default function useDrawingCanvas({
           } else {
             retry = true;
             retryDelay = Math.max(
-              PREDICTION_DELAY_MS,
+              predictionDelayMs,
               (Number(result.retry_after_seconds) || 0) * 1000,
             );
           }
@@ -252,10 +253,10 @@ export default function useDrawingCanvas({
                 null;
 
               predictDrawing();
-            }, requestVersion === drawingVersionRef.current ? retryDelay : PREDICTION_DELAY_MS);
+            }, requestVersion === drawingVersionRef.current ? retryDelay : predictionDelayMs);
         }
       }
-    }, [gameId, playerId]);
+    }, [gameId, playerId, predictionDelayMs]);
 
   const schedulePrediction =
     useCallback(() => {
@@ -281,8 +282,8 @@ export default function useDrawingCanvas({
             null;
 
           predictDrawing();
-        }, PREDICTION_DELAY_MS);
-    }, [predictDrawing]);
+        }, predictionDelayMs);
+    }, [predictDrawing, predictionDelayMs]);
 
   function startDrawing(event) {
     if (!enabledRef.current || !event.isPrimary || event.button !== 0 || drawingRef.current) return;

@@ -1782,3 +1782,21 @@ a:focus-visible {
 .winning-drawing { display: block; width: min(350px, 70vw); max-height: 30vh; object-fit: contain; background: white; border-radius: 16px; margin: 12px auto; }
 .winning-drawing[hidden] { display: none; }
 .round-result .winning-drawing { width: 100%; max-width: 180px; max-height: 140px; }
+.winning-drawing-figure { margin: 8px 0; text-align: center; }
+.leaderboard-title-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.leaderboard-fullscreen-button { padding: 10px 16px; border: 1px solid var(--border); border-radius: 10px; background: white; color: #d92525; font: inherit; font-weight: 700; cursor: pointer; }
+.leaderboard-fullscreen-button:hover { background: #fff1ec; }
+.leaderboard-fullscreen-button:disabled { opacity: .5; cursor: not-allowed; }
+.winning-drawing-target { font-size: 1rem; font-weight: 700; line-height: 1.4; }
+.winner-announcement.round-start-announcement { background: radial-gradient(ellipse at center, #ffe8e5, #fff 70%); overflow-y: auto; }
+.round-start-badge { color: #d92525; font-size: clamp(14px, 2vw, 22px); font-weight: 800; letter-spacing: .14em; }
+.round-start-matchup { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: clamp(16px, 4vw, 64px); width: min(1100px, 92vw); margin: 28px 0; }
+.round-start-player { display: grid; gap: 14px; min-width: 0; }
+.round-start-player > span { color: #777; font-size: 13px; font-weight: 700; letter-spacing: .14em; }
+.round-start-announcement .round-start-player strong { font-size: clamp(28px, 6vw, 84px); line-height: 1.1; overflow-wrap: anywhere; }
+.round-start-versus { color: #e32626; font-size: clamp(42px, 8vw, 100px); font-weight: 900; }
+.round-start-player--one { animation: matchupLeft 450ms ease-out both; }
+.round-start-player--two { animation: matchupRight 450ms ease-out both; }
+@keyframes matchupLeft { from { opacity: 0; transform: translateX(-60px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes matchupRight { from { opacity: 0; transform: translateX(60px); } to { opacity: 1; transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { .round-start-player { animation: none; } }
