@@ -372,12 +372,17 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         before = (game.phase, game.round_winner_id, game.round_points,
                   game.players["one"].score, game.transition_token)
         await self.manager.attach_round_drawing(game.id, "one", event_id, b"thumbnail")
+        await self.manager.attach_round_drawing(game.id, "two", event_id, b"opponent")
         self.assertEqual(before, (game.phase, game.round_winner_id, game.round_points,
                                  game.players["one"].score, game.transition_token))
         self.assertEqual(self.manager.round_drawings[event_id], b"thumbnail")
         with patch("backend.game_manager.time.time", return_value=game.round_winners[-1]["reveal_after"]):
             snapshot = self.manager.leaderboard(rows=[])
         self.assertEqual(snapshot["games"][0]["round_winners"][0]["drawing_url"], f"/round-drawings/{event_id}")
+        drawings = snapshot["games"][0]["round_winners"][0]["drawings"]
+        self.assertEqual([drawing["is_winner"] for drawing in drawings], [True, False])
+        self.assertEqual(drawings[1]["drawing_url"], f"/round-drawings/{event_id}:two")
+        self.assertEqual(self.manager.round_drawings[f"{event_id}:two"], b"opponent")
         self.manager.record_leaderboard.assert_not_called()
         await self.manager.attach_round_drawing(game.id, "one", event_id, b"replacement")
         self.assertEqual(self.manager.round_drawings[event_id], b"thumbnail")
@@ -404,6 +409,8 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         with patch("backend.game_manager.time.time", return_value=104.0):
             self.assertEqual(self.manager.leaderboard(rows=[])["games"][0]["round_winners"], [])
             await self.manager.attach_round_drawing(game.id, "one", event_id, b"final drawing")
+            self.assertEqual(self.manager.leaderboard(rows=[])["games"][0]["round_winners"], [])
+            await self.manager.attach_round_drawing(game.id, "two", event_id, b"opponent drawing")
             result = self.manager.leaderboard(rows=[])["games"][0]["round_winners"][0]
             self.assertEqual(result["winner"], "One")
             self.assertEqual(result["drawing_url"], f"/round-drawings/{event_id}")
@@ -467,7 +474,14 @@ class PromptSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event["round"], 1)
         game.phase = "DRAWING"
         game.round_number = 1
-        self.assertEqual(self.manager.leaderboard(rows=[])["games"][0]["round_start"], event)
+        game.prompt = "cat"
+        game.round_started_at = 100
+        self.assertIsNone(event["prompt"])
+        with patch("backend.game_manager.time.time", return_value=99.9):
+            self.assertIsNone(self.manager.leaderboard(rows=[])["games"][0]["round_start"]["prompt"])
+        with patch("backend.game_manager.time.time", return_value=100):
+            revealed = self.manager.leaderboard(rows=[])["games"][0]["round_start"]
+            self.assertEqual(revealed, {**event, "prompt": "cat"})
         await GameManager.start_countdown(self.manager, game)
         next_event = self.manager.leaderboard(rows=[])["games"][0]["round_start"]
         self.assertEqual(next_event["round"], 2)

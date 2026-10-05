@@ -1054,7 +1054,8 @@ a:focus-visible {
   z-index: 30;
 }
 
-.round-prompt-overlay strong {
+.round-prompt-overlay strong,
+.round-start-target {
   font-size: clamp(44px, 10vw, 140px);
   letter-spacing: -0.04em;
   line-height: 1.1;
@@ -1790,6 +1791,8 @@ a:focus-visible {
 .winning-drawing-target { font-size: 1rem; font-weight: 700; line-height: 1.4; }
 .winner-announcement.round-start-announcement { background: radial-gradient(ellipse at center, #ffe8e5, #fff 70%); overflow-y: auto; }
 .round-start-badge { color: #d92525; font-size: clamp(14px, 2vw, 22px); font-weight: 800; letter-spacing: .14em; }
+.round-start-target { color: var(--text); font-weight: 700; }
+.leaderboard-target-overlay { background: #fff; color: #000; }
 .round-start-matchup { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: clamp(16px, 4vw, 64px); width: min(1100px, 92vw); margin: 28px 0; }
 .round-start-player { display: grid; gap: 14px; min-width: 0; }
 .round-start-player > span { color: #777; font-size: 13px; font-weight: 700; letter-spacing: .14em; }
@@ -1800,3 +1803,16 @@ a:focus-visible {
 @keyframes matchupLeft { from { opacity: 0; transform: translateX(-60px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes matchupRight { from { opacity: 0; transform: translateX(60px); } to { opacity: 1; transform: translateX(0); } }
 @media (prefers-reduced-motion: reduce) { .round-start-player { animation: none; } }
+.round-drawing-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: min(780px, 90vw); max-width: 100%; }
+.round-drawing-target { grid-column: 1 / -1; font-weight: 700; text-align: center; }
+.player-final-drawing { margin: 0; min-width: 0; padding: 10px; border: 2px solid #ddd; border-radius: 14px; background: #fff; color: #181426; }
+.player-final-drawing--winner { border: 3px solid #16854a; background: #effcf3; box-shadow: 0 0 0 3px #16854a18; }
+.player-final-drawing figcaption { display: grid; gap: 4px; text-align: center; margin-bottom: 8px; }
+.drawing-result-label { font-size: 12px; font-weight: 800; color: #666; }
+.player-final-drawing--winner .drawing-result-label { color: #116c3c; }
+.drawing-player-name { font-size: clamp(14px, 2vw, 24px); font-weight: 700; overflow-wrap: anywhere; }
+.player-final-drawing img { display: block; width: 100%; max-height: 28vh; object-fit: contain; background: #fff; border-radius: 8px; }
+.player-final-drawing img[hidden] { display: none; }
+.drawing-unavailable { display: grid; min-height: 80px; place-items: center; font-size: 14px; color: #666; }
+.round-result .round-drawing-comparison { width: 100%; gap: 6px; }
+.round-result .player-final-drawing { padding: 6px; }

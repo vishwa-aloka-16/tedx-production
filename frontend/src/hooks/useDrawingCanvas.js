@@ -61,6 +61,7 @@ export default function useDrawingCanvas({
   roundEventId,
   roundWinnerId,
   predictionGapSeconds = 0.2,
+  cosmeticDrawSeconds = 4,
 }) {
   const predictionDelayMs = predictionGapSeconds * 1000;
   const canvasRef = useRef(null);
@@ -125,15 +126,15 @@ export default function useDrawingCanvas({
       enabledRef.current = false;
       drawingRef.current = false;
       activePointerRef.current = null;
-      const image = playerId === roundWinnerId && hasDrawingRef.current ? canvasRef.current?.toDataURL("image/png") : null;
+      const image = hasDrawingRef.current ? canvasRef.current?.toDataURL("image/png") : null;
       setCapturedEventId(roundEventId);
       if (image) {
         // This endpoint only attaches display media; it never runs inference.
         submitRoundDrawing(gameId, playerId, roundEventId, image).catch(() => {});
       }
-    }, 2000);
+    }, cosmeticDrawSeconds * 1000);
     return () => window.clearTimeout(timer);
-  }, [cosmeticDrawing, gameId, playerId, roundEventId, roundWinnerId]);
+  }, [cosmeticDrawing, gameId, playerId, roundEventId, roundWinnerId, cosmeticDrawSeconds]);
 
   useEffect(() => {
     if (phase === "ROUND_RESULT") return;

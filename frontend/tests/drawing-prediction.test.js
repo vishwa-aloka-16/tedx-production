@@ -104,11 +104,11 @@ test("temporary network errors retry with a backoff", async () => {
   assert.equal([...h.timers.values()][0].delay, 1500);
 });
 
-test("two cosmetic seconds preserve the canvas, allow strokes, and upload only the final winner image", async () => {
+test("four cosmetic seconds preserve the canvas, allow strokes, and upload only the final winner image", async () => {
   const h = harness(() => { throw new Error("must not predict after winner decided"); },
     { phase: "ROUND_RESULT", roundEventId: "event", roundWinnerId: "p" });
   assert.equal(h.clears(), 0);
-  assert.equal([...h.timers.values()][0].delay, 2000);
+  assert.equal([...h.timers.values()][0].delay, 4000);
   h.draw(); h.draw();
   assert.equal(h.calls(), 0);
   await h.tick();
@@ -118,12 +118,12 @@ test("two cosmetic seconds preserve the canvas, allow strokes, and upload only t
   assert.equal(h.strokes(), 2);
 });
 
-test("opponent also gets two cosmetic seconds but cannot upload a winner image", async () => {
+test("opponent also gets four cosmetic seconds and uploads their own drawing", async () => {
   const h = harness(() => ({}), { phase: "ROUND_RESULT", roundEventId: "event", roundWinnerId: "other" });
   h.draw();
   assert.equal(h.strokes(), 1);
-  assert.equal([...h.timers.values()][0].delay, 2000);
+  assert.equal([...h.timers.values()][0].delay, 4000);
   await h.tick();
   assert.equal(h.calls(), 0);
-  assert.equal(h.uploads.length, 0);
+  assert.equal(h.uploads.length, 1);
 });

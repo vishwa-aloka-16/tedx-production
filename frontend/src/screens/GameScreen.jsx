@@ -327,6 +327,7 @@ export default function GameScreen({
     phase: game.phase,
     roundEventId: game.round_event_id,
     roundWinnerId: game.round_winner_id,
+    cosmeticDrawSeconds: game.cosmetic_draw_seconds ?? 4,
     predictionGapSeconds: game.judge?.prediction_gap_seconds ?? 0.2,
   });
 

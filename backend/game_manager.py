@@ -252,6 +252,7 @@ class GameManager:
                 "round_start": {
                     "event_id": game.round_start_event_id,
                     "round": game.round_number + 1 if game.phase == "COUNTDOWN" else game.round_number,
+                    "prompt": game.prompt if game.phase == "DRAWING" and now >= (game.round_started_at or 0) else None,
                 } if game.round_start_event_id and game.phase in ("COUNTDOWN", "DRAWING") else None,
                 "players": [
                     player.name
@@ -261,7 +262,13 @@ class GameManager:
                     )
                 ],
                 "round_winners": [
-                    {**result, "drawing_url": (
+                    {**result, "drawings": [
+                        {**player, "is_winner": player["id"] == result.get("winner_id"),
+                         "drawing_url": f"/round-drawings/{key}" if key in self.round_drawings else None}
+                        for player in result.get("drawing_players", [])
+                        for key in [result["event_id"] if player["id"] == result.get("winner_id")
+                                    else f"{result['event_id']}:{player['id']}"]
+                    ], "drawing_url": (
                         f"/round-drawings/{result['event_id']}"
                         if result["event_id"] in self.round_drawings else None
                     )}
@@ -486,6 +493,7 @@ class GameManager:
 
         return {
             "id": game.id,
+            "cosmetic_draw_seconds": COSMETIC_DRAW_SECONDS,
             "round_event_id": game.round_winners[-1]["event_id"] if game.phase == "ROUND_RESULT" and game.round_winners else None,
             "snapshot_seq": time.monotonic_ns(),
             "server_time": time.time(),
@@ -1203,6 +1211,8 @@ class GameManager:
                 "round": game.round_number,
                 "winner": winner.name if winner else None,
                 "winner_id": winner.id if winner else None,
+                "drawing_players": [{"id": player.id, "name": player.name}
+                                    for player in sorted(game.players.values(), key=lambda player: player.seat)],
                 "prompt": game.prompt,
                 "points": game.round_points,
                 "reveal_after": current_time + COSMETIC_DRAW_SECONDS,
@@ -1231,11 +1241,15 @@ class GameManager:
             result = next((item for item in game.round_winners if item["event_id"] == event_id), None)
             if result is None:
                 raise HTTPException(status_code=409, detail="This round is no longer available.")
-            if result.get("winner_id") != player_id:
-                raise HTTPException(status_code=403, detail="Only the round winner can submit this drawing.")
-            if event_id not in self.round_drawings:
-                self.round_drawings[event_id] = drawing
-                result["drawing_received"] = True
+            participants = result.get("drawing_players", [{"id": result.get("winner_id")}])
+            if player_id not in {player["id"] for player in participants}:
+                raise HTTPException(status_code=403, detail="Only participants of this round can submit a drawing.")
+            key = event_id if result.get("winner_id") == player_id else f"{event_id}:{player_id}"
+            if key not in self.round_drawings:
+                self.round_drawings[key] = drawing
+                received = result.setdefault("drawing_received_players", [])
+                received.append(player_id)
+                result["drawing_received"] = all(player["id"] in received for player in participants)
                 while len(self.round_drawings) > 64:
                     self.round_drawings.popitem(last=False)
                 for queue in self.leaderboard_subscribers:

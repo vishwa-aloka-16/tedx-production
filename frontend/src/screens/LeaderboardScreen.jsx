@@ -7,7 +7,7 @@ import { formatPrompt } from "../lib/session";
 import { collectRoundStarts } from "../lib/roundAnnouncements";
 
 const WINNER_ANNOUNCEMENT_MS = 5000;
-const ROUND_START_ANNOUNCEMENT_MS = 2200;
+const ROUND_START_ANNOUNCEMENT_MS = 2000;
 
 function WinningDrawing({ url, name, prompt }) {
   if (!url) return null;
@@ -19,6 +19,27 @@ function WinningDrawing({ url, name, prompt }) {
         alt={`${name}'s winning drawing${target ? ` of ${target}` : ""}`}
         onError={(event) => { event.currentTarget.hidden = true; }} />
     </figure>
+  );
+}
+
+function RoundDrawings({ drawings, url, name, prompt }) {
+  if (!drawings?.length) return <WinningDrawing url={url} name={name} prompt={prompt} />;
+  return (
+    <div className="round-drawing-comparison">
+      <div className="round-drawing-target">Target: {formatPrompt((prompt || "").replaceAll("_", " "))}</div>
+      {drawings.map((drawing) => (
+        <figure key={drawing.id} className={`player-final-drawing${drawing.is_winner ? " player-final-drawing--winner" : ""}`}>
+          <figcaption>
+            <span className="drawing-result-label">{drawing.is_winner ? "★ WINNER" : "OPPONENT"}</span>
+            <span className="drawing-player-name">{drawing.name}</span>
+          </figcaption>
+          {drawing.drawing_url
+            ? <img src={`${API_URL}${drawing.drawing_url}`} alt={`${drawing.name}'s drawing of ${prompt}`}
+                onError={(event) => { event.currentTarget.hidden = true; }} />
+            : <span className="drawing-unavailable">Drawing unavailable</span>}
+        </figure>
+      ))}
+    </div>
   );
 }
 
@@ -81,6 +102,7 @@ export default function LeaderboardScreen() {
                 round: round.round,
                 points: round.points,
                 drawingUrl: round.drawing_url,
+                drawings: round.drawings,
                 prompt: round.prompt,
               })),
           );
@@ -98,8 +120,8 @@ export default function LeaderboardScreen() {
             // Update that announcement rather than announcing the round twice.
             setAnnouncements((current) => current.map((item) => {
               const updated = completedWins.find((round) => round.key === item.key);
-              return updated?.drawingUrl && updated.drawingUrl !== item.drawingUrl
-                ? { ...item, drawingUrl: updated.drawingUrl, prompt: updated.prompt } : item;
+              return updated && (updated.drawingUrl !== item.drawingUrl || JSON.stringify(updated.drawings) !== JSON.stringify(item.drawings))
+                ? { ...item, drawingUrl: updated.drawingUrl, drawings: updated.drawings, prompt: updated.prompt } : item;
             }));
             const newWinners = completedWins.filter(
               (round) => !seenRoundsRef.current.has(round.key),
@@ -151,21 +173,9 @@ export default function LeaderboardScreen() {
   return (
     <main className="leaderboard-page">
       {winnerAnnouncement?.isRoundStart && (
-        <div className="winner-announcement round-start-announcement"
-          key={winnerAnnouncement.key} role="status"
-          style={{ "--announcement-duration": `${ROUND_START_ANNOUNCEMENT_MS}ms` }}>
-          <BrandLogos />
-          <span className="round-start-badge">ROUND {winnerAnnouncement.round} · GET READY</span>
-          <div className="round-start-matchup">
-            <div className="round-start-player round-start-player--one">
-              <span>PLAYER 1</span><strong>{winnerAnnouncement.players[0]}</strong>
-            </div>
-            <span className="round-start-versus" aria-label="versus">×</span>
-            <div className="round-start-player round-start-player--two">
-              <span>PLAYER 2</span><strong>{winnerAnnouncement.players[1]}</strong>
-            </div>
-          </div>
-          <span>Let the drawing begin</span>
+        <div className="round-prompt-overlay leaderboard-target-overlay"
+          key={winnerAnnouncement.key} role="status">
+          <strong>{formatPrompt(winnerAnnouncement.prompt)}</strong>
         </div>
       )}
       {winnerAnnouncement && !winnerAnnouncement.isRoundStart && (
@@ -179,7 +189,7 @@ export default function LeaderboardScreen() {
           {winnerAnnouncement.isGameWinner && <span className="champion-trophy" aria-hidden="true">🏆</span>}
           <span className="winner-announcement-badge">{winnerAnnouncement.isGameWinner ? (winnerAnnouncement.tied ? "GAME DRAW" : "GAME WINNER") : "WINNER"}</span>
           <strong>{winnerAnnouncement.name}</strong>
-          <WinningDrawing url={winnerAnnouncement.drawingUrl} name={winnerAnnouncement.name} prompt={winnerAnnouncement.prompt} />
+          <RoundDrawings drawings={winnerAnnouncement.drawings} url={winnerAnnouncement.drawingUrl} name={winnerAnnouncement.name} prompt={winnerAnnouncement.prompt} />
           <span>
             {winnerAnnouncement.isGameWinner
               ? `${winnerAnnouncement.tied ? "Tied" : "Champion"} with ${winnerAnnouncement.points.toLocaleString()} points`
@@ -272,7 +282,7 @@ export default function LeaderboardScreen() {
                         {round.winner || "No winner"}
                       </strong>
                       {round.points > 0 && <small>+{round.points} pts</small>}
-                      <WinningDrawing url={round.drawing_url} name={round.winner} prompt={round.prompt} />
+                      <RoundDrawings drawings={round.drawings} url={round.drawing_url} name={round.winner} prompt={round.prompt} />
                     </div>
                   ))}
                 </div>
